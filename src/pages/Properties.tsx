@@ -31,6 +31,7 @@ export default function Properties() {
   const [showFilters, setShowFilters] = useState(false)
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'rating' | 'reviews'>('rating')
+  const [likedIds, setLikedIds] = useState<string[]>([])
 
   const filtered = useMemo(() => {
     let result = properties.filter((p) => {
@@ -57,6 +58,10 @@ export default function Properties() {
 
   const toggleAmenity = (a: string) => {
     setSelectedAmenities((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])
+  }
+
+  const toggleLike = (id: string) => {
+    setLikedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   return (
@@ -234,36 +239,42 @@ export default function Properties() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
-              className="group bg-card rounded-2xl overflow-hidden subtle-shadow hover:elevated-shadow gentle-animation"
+              className="group relative bg-white rounded-[1.5rem] overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl gentle-animation"
             >
               <Link to={`/properties/${prop.id}`} className="block cursor-pointer">
                 <div className="relative aspect-[4/3] overflow-hidden">
                   <img src={prop.image} alt={prop.title} loading="lazy"
                     className="w-full h-full object-cover gentle-animation group-hover:scale-105" />
                   <div className="absolute top-4 left-4">
-                    <span className="bg-card/90 backdrop-blur-sm text-foreground text-xs font-medium px-3 py-1.5 rounded-full capitalize">
-                      {prop.category}
-                    </span>
+                    <div className="bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-slate-800">{prop.category}</span>
+                    </div>
                   </div>
-                  <button className="absolute top-4 right-4 p-2 bg-card/90 backdrop-blur-sm rounded-full hover:bg-card gentle-animation">
-                    <Heart className="w-4 h-4 text-foreground" />
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      toggleLike(prop.id)
+                    }}
+                    className="absolute top-4 right-4 z-30 w-10 h-10 bg-white/90 backdrop-blur-md rounded-full flex items-center justify-center shadow-sm"
+                  >
+                    <Heart className={`w-4 h-4 transition-colors ${likedIds.includes(prop.id) ? 'fill-red-500 text-red-500' : 'text-slate-900'}`} />
                   </button>
                 </div>
                 <div className="p-6">
-                  <div className="flex items-center gap-1 text-muted-foreground text-xs mb-2">
+                  <div className="flex items-center gap-1.5 text-slate-400 text-[10px] mb-2 font-bold uppercase tracking-wider">
                     <MapPin className="w-3.5 h-3.5" />
                     {prop.location}
                   </div>
-                  <h3 className="font-display text-xl font-semibold text-foreground mb-3">{prop.title}</h3>
-                  <div className="flex items-center justify-between">
+                  <h3 className="font-display text-xl font-bold text-slate-900 mb-4 leading-tight group-hover:text-blue-600 gentle-animation">{prop.title}</h3>
+                  <div className="flex items-center justify-between pt-5 border-t border-slate-50">
                     <div className="flex items-center gap-1">
-                      <Star className="w-4 h-4 text-gold fill-gold" />
-                      <span className="text-sm font-medium text-foreground">{prop.rating}</span>
-                      <span className="text-xs text-muted-foreground">({prop.reviews})</span>
+                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                      <span className="text-sm font-bold text-slate-900">{prop.rating}</span>
+                      <span className="text-[10px] text-slate-400 font-medium">({prop.reviews})</span>
                     </div>
-                    <div>
-                      <span className="text-lg font-semibold text-foreground">${prop.price}</span>
-                      <span className="text-sm text-muted-foreground"> / night</span>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-slate-900">${prop.price}</span>
+                      <span className="text-[10px] text-slate-400 block font-bold">/ night</span>
                     </div>
                   </div>
                 </div>

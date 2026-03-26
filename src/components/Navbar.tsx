@@ -16,7 +16,11 @@ const languages = [
   { code: 'uz', label: "O'zbek" },
 ]
 
-export function Navbar() {
+interface NavbarProps {
+  forceSolid?: boolean
+}
+
+export function Navbar({ forceSolid = false }: NavbarProps) {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isLangOpen, setIsLangOpen] = useState(false)
@@ -44,7 +48,7 @@ export function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const selectedLang = languages.find(l => l.code === currentLang)
+  const useSolidStyle = forceSolid || isScrolled
 
   return (
     <motion.nav
@@ -54,19 +58,19 @@ export function Navbar() {
       className="fixed top-0 left-0 right-0 z-50"
     >
       <div className={`w-full px-6 sm:px-8 lg:px-12 py-4 gentle-animation ${
-        isScrolled
+        useSolidStyle
           ? 'bg-card/90 backdrop-blur-xl border-b border-border shadow-sm'
           : 'bg-transparent'
       }`}>
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           {/* Logo */}
-          <a href="#" className="flex items-center gap-1" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <Link to="/" className="flex items-center gap-1">
             <span className={`font-display text-2xl font-bold tracking-tight gentle-animation ${
-              isScrolled ? 'text-foreground' : 'text-white'
+              useSolidStyle ? 'text-foreground' : 'text-white'
             }`}>
               ROOM<span className="text-gold">i</span>
             </span>
-          </a>
+          </Link>
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
@@ -75,7 +79,7 @@ export function Navbar() {
                 key={link.label}
                 href={link.href}
                 className={`text-sm font-medium tracking-wide gentle-animation hover:opacity-70 ${
-                  isScrolled ? 'text-foreground' : 'text-white'
+                  useSolidStyle ? 'text-foreground' : 'text-white'
                 }`}
               >
                 {link.label}
@@ -90,7 +94,7 @@ export function Navbar() {
               <button
                 onClick={() => setIsLangOpen(!isLangOpen)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-full gentle-animation ${
-                  isScrolled
+                  useSolidStyle
                     ? 'text-foreground hover:bg-muted'
                     : 'text-white hover:bg-white/10'
                 }`}
@@ -128,7 +132,7 @@ export function Navbar() {
             <Link
               to="/sign-in"
               className={`hidden sm:inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full gentle-animation ${
-                isScrolled
+                useSolidStyle
                   ? 'text-foreground hover:bg-muted'
                   : 'text-white hover:bg-white/10'
               }`}
@@ -141,7 +145,7 @@ export function Navbar() {
             <Link
               to="/sign-up"
               className={`hidden sm:inline-flex items-center px-5 py-2 text-sm font-medium rounded-full gentle-animation ${
-                isScrolled
+                useSolidStyle
                   ? 'bg-primary text-primary-foreground hover:opacity-90'
                   : 'bg-white text-foreground hover:bg-white/90'
               }`}
@@ -152,7 +156,7 @@ export function Navbar() {
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className={`md:hidden p-2 rounded-full gentle-animation ${
-                isScrolled ? 'text-foreground hover:bg-muted' : 'text-white hover:bg-white/10'
+                useSolidStyle ? 'text-foreground hover:bg-muted' : 'text-white hover:bg-white/10'
               }`}
             >
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

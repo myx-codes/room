@@ -138,7 +138,7 @@ export default function PropertyDetail() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
+      <Navbar forceSolid />
 
       <div className="max-w-7xl mx-auto px-6 pt-28 pb-16">
         <button

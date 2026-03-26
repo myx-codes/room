@@ -1,5 +1,6 @@
 import { properties } from '@/data/mockData'
 import { Star, MapPin, Pencil, Plus } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 export default function AgentProperties() {
   // Filter by agent — mock showing agent a1's properties
@@ -22,7 +23,9 @@ export default function AgentProperties() {
         {myProperties.map((p) => (
           <div key={p.id} className="bg-card border border-border rounded-2xl overflow-hidden">
             <div className="relative aspect-[16/9] overflow-hidden">
-              <img src={p.image} alt={p.title} className="w-full h-full object-cover" />
+              <Link to={`/properties/${p.id}`} className="block h-full">
+                <img src={p.image} alt={p.title} className="w-full h-full object-cover" />
+              </Link>
               <span className="absolute top-3 left-3 bg-card/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-medium capitalize text-foreground">{p.category}</span>
             </div>
             <div className="p-5">

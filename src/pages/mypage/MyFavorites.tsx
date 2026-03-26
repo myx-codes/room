@@ -1,5 +1,6 @@
 import { properties } from '@/data/mockData'
 import { Star, MapPin, Heart } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 export default function MyFavorites() {
   // Mock: user has favorited properties 1 and 3
@@ -21,7 +22,9 @@ export default function MyFavorites() {
           {favorites.map((p) => (
             <div key={p.id} className="bg-card border border-border rounded-2xl overflow-hidden group">
               <div className="relative aspect-[16/9] overflow-hidden">
-                <img src={p.image} alt={p.title} className="w-full h-full object-cover gentle-animation group-hover:scale-105" />
+                <Link to={`/properties/${p.id}`} className="block h-full">
+                  <img src={p.image} alt={p.title} className="w-full h-full object-cover gentle-animation group-hover:scale-105" />
+                </Link>
                 <button className="absolute top-3 right-3 p-2 bg-card/90 backdrop-blur-sm rounded-full">
                   <Heart className="w-4 h-4 text-gold fill-gold" />
                 </button>

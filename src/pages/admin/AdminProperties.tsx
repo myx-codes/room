@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { properties } from '@/data/mockData'
 import { Star, MapPin, Pencil, Trash2, Plus } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 export default function AdminProperties() {
   const [data] = useState(properties)
@@ -34,7 +35,9 @@ export default function AdminProperties() {
               <tr key={p.id} className="border-b border-border/50 hover:bg-muted/30 gentle-animation">
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
-                    <img src={p.image} alt={p.title} className="w-12 h-12 rounded-lg object-cover" />
+                    <Link to={`/properties/${p.id}`}>
+                      <img src={p.image} alt={p.title} className="w-12 h-12 rounded-lg object-cover" />
+                    </Link>
                     <div>
                       <p className="font-medium text-foreground">{p.title}</p>
                       <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="w-3 h-3" />{p.location}</p>

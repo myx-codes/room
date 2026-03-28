@@ -1,22 +1,100 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Eye, EyeOff, Mail, Lock } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, User, Lock } from 'lucide-react'
+import { useLazyQuery, useMutation } from '@apollo/client/react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { CHECK_AUTH_QUERY, LOGIN_MUTATION } from '@/graphql/member'
+import { clearAccessToken, setAccessToken, setMemberProfile } from '@/lib/auth'
+import type { Member } from '@/types/member'
+
+type LoginResponse = {
+  login: Member
+}
+
+type CheckAuthResponse = {
+  checkAuth: string
+}
 
 export default function SignIn() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
-  const [email, setEmail] = useState('')
+  const [memberNick, setMemberNick] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
+  const [formError, setFormError] = useState('')
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [loginMember, { loading: loginLoading }] = useMutation<LoginResponse>(LOGIN_MUTATION)
+  const [checkAuth, { loading: checkAuthLoading }] = useLazyQuery<CheckAuthResponse>(CHECK_AUTH_QUERY, {
+    fetchPolicy: 'network-only',
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Connect your backend here
-    console.log({ email, password, rememberMe })
+    setFormError('')
+
+    try {
+      const { data } = await loginMember({
+        variables: {
+          memberNick,
+          memberPassword: password,
+        },
+      })
+
+      const token = data?.login?.accessToken
+      if (!token) {
+        setFormError('Login muvaffaqiyatsiz: access token qaytmadi.')
+        return
+      }
+
+      setAccessToken(token)
+      setMemberProfile({
+        _id: data.login._id,
+        memberType: data.login.memberType,
+        memberStatus: data.login.memberStatus,
+        memberAuthType: data.login.memberAuthType,
+        memberPhone: data.login.memberPhone,
+        memberNick: data.login.memberNick,
+        memberFullName: data.login.memberFullName,
+        memberImage: data.login.memberImage,
+        memberAddress: data.login.memberAddress,
+        memberProperties: data.login.memberProperties,
+        memberArticles: data.login.memberArticles,
+        memberFollowers: data.login.memberFollowers,
+        memberFollowings: data.login.memberFollowings,
+        memberPoints: data.login.memberPoints,
+        memberRank: data.login.memberRank,
+        memberDesc: data.login.memberDesc,
+        memberLikes: data.login.memberLikes,
+        memberViews: data.login.memberViews,
+        memberComments: data.login.memberComments,
+        memberWarnings: data.login.memberWarnings,
+        memberBlocks: data.login.memberBlocks,
+        deletedAt: data.login.deletedAt,
+        createdAt: data.login.createdAt,
+        updatedAt: data.login.updatedAt,
+      })
+
+      try {
+        await checkAuth()
+      } catch {
+        clearAccessToken()
+        setFormError('Token tekshiruvi muvaffaqiyatsiz bo‘ldi. Qayta urinib ko‘ring.')
+        return
+      }
+
+      if (!rememberMe) {
+        // Hozircha localStorage ishlatilmoqda; eslatma uchun joy qoldirildi.
+      }
+
+      navigate('/my-page')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login xatosi yuz berdi.'
+      setFormError(message)
+    }
   }
 
   return (
@@ -71,15 +149,15 @@ export default function SignIn() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="memberNick">Member Nick</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="memberNick"
+                  type="text"
+                  placeholder="your nickname"
+                  value={memberNick}
+                  onChange={(e) => setMemberNick(e.target.value)}
                   className="pl-10 h-12 bg-card border-border"
                   required
                 />
@@ -128,9 +206,13 @@ export default function SignIn() {
               </Label>
             </div>
 
-            <Button type="submit" className="w-full h-12 text-base font-medium">
-              Sign In
+            <Button type="submit" className="w-full h-12 text-base font-medium" disabled={loginLoading || checkAuthLoading}>
+              {loginLoading || checkAuthLoading ? 'Signing In...' : 'Sign In'}
             </Button>
+
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
           </form>
 
           <div className="relative my-8">

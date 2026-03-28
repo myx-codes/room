@@ -1,13 +1,14 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, Globe, User } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { clearAccessToken, getAccessToken, getAuthChangedEventName } from '@/lib/auth'
 
 const navLinks = [
-  { label: 'Villas', href: '#categories' },
-  { label: 'Hotels', href: '#categories' },
-  { label: 'Sanatoriums', href: '#categories' },
-  { label: 'How It Works', href: '#how-it-works' },
+  { label: 'Villas', type: 'route' as const, to: '/properties?category=villa' },
+  { label: 'Hotels', type: 'route' as const, to: '/properties?category=hotel' },
+  { label: 'Sanatoriums', type: 'route' as const, to: '/properties?category=sanatorium' },
+  { label: 'How It Works', type: 'section' as const, sectionId: 'how-it-works' },
 ]
 
 const languages = [
@@ -21,10 +22,13 @@ interface NavbarProps {
 }
 
 export function Navbar({ forceSolid = false }: NavbarProps) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isLangOpen, setIsLangOpen] = useState(false)
   const [currentLang, setCurrentLang] = useState('en')
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()))
   const langRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -48,7 +52,36 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  useEffect(() => {
+    const syncAuthState = () => setIsAuthenticated(Boolean(getAccessToken()))
+    const authEvent = getAuthChangedEventName()
+
+    window.addEventListener('storage', syncAuthState)
+    window.addEventListener(authEvent, syncAuthState)
+
+    return () => {
+      window.removeEventListener('storage', syncAuthState)
+      window.removeEventListener(authEvent, syncAuthState)
+    }
+  }, [])
+
+  const handleSectionNavigation = (sectionId: string) => {
+    if (location.pathname === '/') {
+      const section = document.getElementById(sectionId)
+      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
+
+    navigate(`/#${sectionId}`)
+  }
+
   const useSolidStyle = forceSolid || isScrolled
+
+  const handleLogout = () => {
+    clearAccessToken()
+    setIsMobileMenuOpen(false)
+    navigate('/')
+  }
 
   return (
     <motion.nav
@@ -75,15 +108,27 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className={`text-sm font-medium tracking-wide gentle-animation hover:opacity-70 ${
-                  useSolidStyle ? 'text-foreground' : 'text-white'
-                }`}
-              >
-                {link.label}
-              </a>
+              link.type === 'route' ? (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  className={`text-sm font-medium tracking-wide gentle-animation hover:opacity-70 ${
+                    useSolidStyle ? 'text-foreground' : 'text-white'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <button
+                  key={link.label}
+                  onClick={() => handleSectionNavigation(link.sectionId)}
+                  className={`text-sm font-medium tracking-wide gentle-animation hover:opacity-70 ${
+                    useSolidStyle ? 'text-foreground' : 'text-white'
+                  }`}
+                >
+                  {link.label}
+                </button>
+              )
             ))}
           </div>
 
@@ -128,30 +173,58 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
               </AnimatePresence>
             </div>
 
-            {/* Sign In */}
-            <Link
-              to="/sign-in"
-              className={`hidden sm:inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full gentle-animation ${
-                useSolidStyle
-                  ? 'text-foreground hover:bg-muted'
-                  : 'text-white hover:bg-white/10'
-              }`}
-            >
-              <User className="w-4 h-4" />
-              Sign In
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <Link
+                  to="/my-page"
+                  className={`hidden sm:inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full gentle-animation ${
+                    useSolidStyle
+                      ? 'text-foreground hover:bg-muted'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  <User className="w-4 h-4" />
+                  My Account
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className={`hidden sm:inline-flex items-center px-5 py-2 text-sm font-medium rounded-full gentle-animation ${
+                    useSolidStyle
+                      ? 'bg-primary text-primary-foreground hover:opacity-90'
+                      : 'bg-white text-foreground hover:bg-white/90'
+                  }`}
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Sign In */}
+                <Link
+                  to="/sign-in"
+                  className={`hidden sm:inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full gentle-animation ${
+                    useSolidStyle
+                      ? 'text-foreground hover:bg-muted'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  <User className="w-4 h-4" />
+                  Sign In
+                </Link>
 
-            {/* Sign Up */}
-            <Link
-              to="/sign-up"
-              className={`hidden sm:inline-flex items-center px-5 py-2 text-sm font-medium rounded-full gentle-animation ${
-                useSolidStyle
-                  ? 'bg-primary text-primary-foreground hover:opacity-90'
-                  : 'bg-white text-foreground hover:bg-white/90'
-              }`}
-            >
-              Sign Up
-            </Link>
+                {/* Sign Up */}
+                <Link
+                  to="/sign-up"
+                  className={`hidden sm:inline-flex items-center px-5 py-2 text-sm font-medium rounded-full gentle-animation ${
+                    useSolidStyle
+                      ? 'bg-primary text-primary-foreground hover:opacity-90'
+                      : 'bg-white text-foreground hover:bg-white/90'
+                  }`}
+                >
+                  Sign Up
+                </Link>
+              </>
+            )}
 
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -174,14 +247,27 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
         >
           <div className="flex flex-col items-center gap-6 p-8">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="text-lg font-medium text-foreground hover:text-gold gentle-animation"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                {link.label}
-              </a>
+              link.type === 'route' ? (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  className="text-lg font-medium text-foreground hover:text-gold gentle-animation"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <button
+                  key={link.label}
+                  onClick={() => {
+                    handleSectionNavigation(link.sectionId)
+                    setIsMobileMenuOpen(false)
+                  }}
+                  className="text-lg font-medium text-foreground hover:text-gold gentle-animation"
+                >
+                  {link.label}
+                </button>
+              )
             ))}
             <div className="flex gap-2 mt-4">
               {languages.map((lang) => (
@@ -198,20 +284,40 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
                 </button>
               ))}
             </div>
-            <Link
-              to="/sign-in"
-              className="mt-2 px-8 py-3 border border-border text-foreground rounded-full text-sm font-medium"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              Sign In
-            </Link>
-            <Link
-              to="/sign-up"
-              className="px-8 py-3 bg-primary text-primary-foreground rounded-full text-sm font-medium"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              Sign Up
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <Link
+                  to="/my-page"
+                  className="mt-2 px-8 py-3 border border-border text-foreground rounded-full text-sm font-medium"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  My Account
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="px-8 py-3 bg-primary text-primary-foreground rounded-full text-sm font-medium"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/sign-in"
+                  className="mt-2 px-8 py-3 border border-border text-foreground rounded-full text-sm font-medium"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Sign In
+                </Link>
+                <Link
+                  to="/sign-up"
+                  className="px-8 py-3 bg-primary text-primary-foreground rounded-full text-sm font-medium"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Sign Up
+                </Link>
+              </>
+            )}
           </div>
         </motion.div>
       )}

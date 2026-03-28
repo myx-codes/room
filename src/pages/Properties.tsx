@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Star, Heart, MapPin, SlidersHorizontal, X, Calendar } from 'lucide-react'
@@ -7,6 +7,7 @@ import { properties, amenityLabels, type PropertyCategory } from '@/data/mockDat
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
+import { clearAccessToken, getAccessToken, getAuthChangedEventName } from '@/lib/auth'
 import type { DateRange } from 'react-day-picker'
 
 const categories: { label: string; value: PropertyCategory | 'all' }[] = [
@@ -20,7 +21,8 @@ const amenityOptions = Object.entries(amenityLabels)
 
 export default function Properties() {
   const [searchParams] = useSearchParams()
-  const initialCategory = (searchParams.get('category') as PropertyCategory | null) || 'all'
+  const categoryParam = searchParams.get('category') || searchParams.get('type')
+  const initialCategory = (categoryParam as PropertyCategory | null) || 'all'
   const initialLocation = searchParams.get('location') || ''
 
   const [category, setCategory] = useState<PropertyCategory | 'all'>(initialCategory)
@@ -32,6 +34,19 @@ export default function Properties() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'rating' | 'reviews'>('rating')
   const [likedIds, setLikedIds] = useState<string[]>([])
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()))
+
+  const authEventName = getAuthChangedEventName()
+
+  useEffect(() => {
+    const syncAuthState = () => setIsAuthenticated(Boolean(getAccessToken()))
+    window.addEventListener('storage', syncAuthState)
+    window.addEventListener(authEventName, syncAuthState)
+    return () => {
+      window.removeEventListener('storage', syncAuthState)
+      window.removeEventListener(authEventName, syncAuthState)
+    }
+  }, [authEventName])
 
   const filtered = useMemo(() => {
     let result = properties.filter((p) => {
@@ -73,8 +88,24 @@ export default function Properties() {
             ROOM<span className="text-gold">i</span>
           </Link>
           <div className="flex items-center gap-3">
-            <Link to="/sign-in" className="text-sm font-medium text-foreground hover:text-gold gentle-animation">Sign In</Link>
-            <Link to="/sign-up" className="text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-full hover:opacity-90 gentle-animation">Sign Up</Link>
+            {isAuthenticated ? (
+              <>
+                <Link to="/my-page" className="text-sm font-medium text-foreground hover:text-gold gentle-animation">My Account</Link>
+                <button
+                  onClick={() => {
+                    clearAccessToken()
+                  }}
+                  className="text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-full hover:opacity-90 gentle-animation"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link to="/sign-in" className="text-sm font-medium text-foreground hover:text-gold gentle-animation">Sign In</Link>
+                <Link to="/sign-up" className="text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-full hover:opacity-90 gentle-animation">Sign Up</Link>
+              </>
+            )}
           </div>
         </div>
       </header>

@@ -96,7 +96,7 @@ function VillaVideoHeroLayout({ properties }) {
         transition={{ duration: 1 }}
       >
         <video autoPlay muted={isMuted} loop playsInline className="w-full h-full object-cover">
-          <source src="/videos/211152.mp4" type="video/mp4" />
+          <source src="/videos/villa.mp4" type="video/mp4" />
         </video>
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
         <button onClick={() => setIsMuted(!isMuted)} className="absolute top-8 right-8 z-30 p-4 bg-white/10 backdrop-blur-md rounded-full text-white hover:bg-white/20 transition-all">
@@ -217,7 +217,7 @@ function PropertyCard({ prop, index, compact = false }) {
           <Heart className={`w-4 h-4 ${isLiked ? 'fill-red-500 text-red-500' : 'text-slate-900'}`} />
         </button>
         <div className="absolute top-4 left-4 bg-white/95 px-3 py-1.5 rounded-xl border border-slate-100/50">
-          <span className="text-[8px] font-black uppercase tracking-widest text-slate-900">{prop.category}</span>
+          <span className="text-[12px] font-black uppercase tracking-widest text-slate-900">{prop.category}</span>
         </div>
       </div>
       <div className="p-6">

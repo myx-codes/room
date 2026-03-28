@@ -13,33 +13,36 @@ interface DashboardLayoutProps {
   navItems: NavItem[]
   children: ReactNode
   basePath: string
+  showTopBar?: boolean
 }
 
-export function DashboardLayout({ title, navItems, children, basePath }: DashboardLayoutProps) {
+export function DashboardLayout({ title, navItems, children, basePath, showTopBar = true }: DashboardLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
   return (
     <div className="min-h-screen bg-background">
       {/* Top bar */}
-      <header className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-muted gentle-animation">
-              <ChevronLeft className="w-5 h-5 text-foreground" />
-            </button>
-            <h1 className="font-display text-xl font-bold text-foreground">{title}</h1>
+      {showTopBar && (
+        <header className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
+          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-muted gentle-animation">
+                <ChevronLeft className="w-5 h-5 text-foreground" />
+              </button>
+              <h1 className="font-display text-xl font-bold text-foreground">{title}</h1>
+            </div>
+            <Link to="/" className="font-display text-lg font-bold text-foreground">
+              ROOM<span className="text-gold">i</span>
+            </Link>
           </div>
-          <Link to="/" className="font-display text-lg font-bold text-foreground">
-            ROOM<span className="text-gold">i</span>
-          </Link>
-        </div>
-      </header>
+        </header>
+      )}
 
       <div className="max-w-7xl mx-auto flex">
         {/* Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-border min-h-[calc(100vh-65px)] p-4 hidden md:block">
-          <nav className="flex flex-col gap-1 sticky top-[81px]">
+        <aside className={`w-64 shrink-0 border-r border-border p-4 hidden md:block ${showTopBar ? 'min-h-[calc(100vh-65px)]' : 'min-h-screen'}`}>
+          <nav className={`flex flex-col gap-1 ${showTopBar ? 'sticky top-[81px]' : 'sticky top-24'}`}>
             {navItems.map((item) => {
               const isActive = location.pathname === item.path || 
                 (item.path === basePath && location.pathname === basePath)

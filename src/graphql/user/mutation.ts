@@ -92,3 +92,71 @@ export const UPDATE_MEMBER = gql `
     }
 }
 `;
+
+/**************************
+ *         AGENT          *
+ *************************/
+
+export const IMAGES_UPLOADER = gql `
+mutation ImagesUploader($files: [Upload!]!, $target: String!) {
+    imagesUploader(files: $files, target: $target)
+}
+`;
+
+export const CREATE_PROPERTY = gql `
+mutation CreateProperty($input: PropertyInput!) {
+    createProperty(input: $input) {
+        _id
+        propertyType
+        propertyStatus
+        propertyLocation
+        propertyAddress
+        propertyTitle
+        propertyPrice
+        propertySquare
+        propertyBeds
+        propertyRooms
+        propertyViews
+        propertyLikes
+        propertyComments
+        propertyRank
+        propertyImages
+        propertyDesc
+        propertyRent
+        memberId
+        deletedAt
+        constructedAt
+        createdAt
+        updatedAt
+        memberData {
+            _id
+            memberType
+            memberStatus
+            memberAuthType
+            memberPhone
+            memberNick
+            memberFullName
+            memberImage
+            memberProperties
+            memberArticles
+            memberPoints
+            memberLikes
+            memberViews
+            memberComments
+            memberRank
+            memberWarnings
+            memberBlocks
+            deletedAt
+            createdAt
+            updatedAt
+            accessToken
+        }
+        meLiked {
+            memberId
+            likeRefId
+            myFavorite
+        }
+    }
+}
+`;
+

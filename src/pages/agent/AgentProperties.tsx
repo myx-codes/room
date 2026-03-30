@@ -1,10 +1,399 @@
-import { properties } from '@/data/mockData'
-import { Star, MapPin, Pencil, Plus } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery } from '@apollo/client/react'
+import { Star, MapPin, Pencil, Plus, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { CREATE_PROPERTY } from '@/graphql/user/mutation'
+import { GET_PROPERTIES } from '@/graphql/user/query'
+import { getMemberProfile } from '@/lib/auth'
+
+type PropertyType = 'VILLA' | 'HOTEL' | 'SANATORIUM'
+
+type CreatedProperty = {
+  _id: string
+  propertyType: string
+  propertyLocation: string
+  propertyTitle: string
+  propertyPrice: number
+  propertyRank?: number
+  propertyComments: number
+  propertyImages: string[]
+}
+
+type CreatePropertyResponse = {
+  createProperty: CreatedProperty
+}
+
+type CreatePropertyVariables = {
+  input: {
+    propertyType: PropertyType
+    propertyLocation: string
+    propertyAddress: string
+    propertyTitle: string
+    propertyPrice: number
+    propertySquare: number
+    propertyBeds: number
+    propertyRooms: number
+    propertyImages: string[]
+    propertyDesc: string
+    propertyRent: boolean
+  }
+}
+
+type GetPropertiesResponse = {
+  getProperties: {
+    list: CreatedProperty[]
+    metaCounter?: {
+      total?: number
+    }
+  }
+}
+
+type GetPropertiesVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: {
+      memberId?: string
+    }
+  }
+}
+
+type LocalPropertyCard = {
+  id: string
+  title: string
+  location: string
+  price: number
+  rating: number
+  reviews: number
+  image: string
+  category: 'villa' | 'hotel' | 'sanatorium'
+}
+
+type ImagesUploaderPayload = {
+  data?: {
+    imagesUploader?: string[]
+  }
+  errors?: Array<{
+    message: string
+  }>
+}
+
+const FALLBACK_IMAGE = '/assets/hero-villa.jpg'
+const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
+
+function getBackendOrigin(): string {
+  try {
+    return new URL(GRAPHQL_URL).origin
+  } catch {
+    return 'http://localhost:3008'
+  }
+}
+
+function resolveImageUrl(imagePath?: string): string {
+  if (!imagePath) return FALLBACK_IMAGE
+  if (/^https?:\/\//i.test(imagePath) || imagePath.startsWith('data:') || imagePath.startsWith('blob:')) {
+    return imagePath
+  }
+
+  const cleanPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`
+  return `${getBackendOrigin()}${cleanPath}`
+}
+
+function mapPropertyTypeToCategory(type: string): 'villa' | 'hotel' | 'sanatorium' {
+  const normalized = type.toUpperCase()
+  if (normalized === 'HOTEL') return 'hotel'
+  if (normalized === 'SANATORIUM') return 'sanatorium'
+  return 'villa'
+}
+
+function toLocalPropertyCard(item: CreatedProperty): LocalPropertyCard {
+  return {
+    id: item._id,
+    title: item.propertyTitle,
+    location: item.propertyLocation,
+    price: item.propertyPrice,
+    rating: item.propertyRank || 0,
+    reviews: item.propertyComments || 0,
+    image: resolveImageUrl(item.propertyImages?.[0]),
+    category: mapPropertyTypeToCategory(item.propertyType),
+  }
+}
+
+function getCookieValue(name: string): string {
+  if (typeof document === 'undefined') return ''
+  const encodedName = encodeURIComponent(name)
+  const parts = document.cookie.split(';')
+
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (trimmed.startsWith(`${encodedName}=`)) {
+      return decodeURIComponent(trimmed.slice(encodedName.length + 1))
+    }
+  }
+
+  return ''
+}
+
+function getCsrfToken(): string {
+  if (typeof window === 'undefined') return ''
+  return (
+    getCookieValue('XSRF-TOKEN') ||
+    getCookieValue('CSRF-TOKEN') ||
+    getCookieValue('csrfToken') ||
+    getCookieValue('_csrf') ||
+    window.localStorage.getItem('XSRF-TOKEN') ||
+    window.localStorage.getItem('csrfToken') ||
+    ''
+  )
+}
+
+async function uploadImages(files: File[], target: string): Promise<string[]> {
+  const formData = new FormData()
+  const query = `
+    mutation ImagesUploader($files: [Upload!]!, $target: String!) {
+      imagesUploader(files: $files, target: $target)
+    }
+  `
+
+  const operations = {
+    query,
+    variables: {
+      files: files.map(() => null),
+      target,
+    },
+  }
+
+  const map: Record<string, string[]> = {}
+  files.forEach((_, index) => {
+    map[String(index)] = [`variables.files.${index}`]
+  })
+
+  formData.append('operations', JSON.stringify(operations))
+  formData.append('map', JSON.stringify(map))
+
+  files.forEach((file, index) => {
+    formData.append(String(index), file, file.name)
+  })
+
+  const csrfToken = getCsrfToken()
+  const headers: Record<string, string> = {}
+  headers['apollo-require-preflight'] = 'true'
+  headers['x-apollo-operation-name'] = 'ImagesUploader'
+
+  if (csrfToken) {
+    headers['x-csrf-token'] = csrfToken
+    headers['x-xsrf-token'] = csrfToken
+  }
+
+  const response = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error('A server error occurred while uploading images.')
+  }
+
+  const payload = (await response.json()) as ImagesUploaderPayload
+  if (payload.errors?.length) {
+    throw new Error(payload.errors[0].message || 'An error occurred while uploading images.')
+  }
+
+  const uploaded = payload.data?.imagesUploader || []
+  if (uploaded.length === 0) {
+    throw new Error('Image upload returned an empty result.')
+  }
+
+  return uploaded
+}
 
 export default function AgentProperties() {
-  // Filter by agent — mock showing agent a1's properties
-  const myProperties = properties.filter((p) => p.agentId === 'a1')
+  const memberId = getMemberProfile()?._id
+  const [isAddOpen, setIsAddOpen] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [submitSuccess, setSubmitSuccess] = useState('')
+
+  const [propertyType, setPropertyType] = useState<PropertyType>('VILLA')
+  const [propertyTitle, setPropertyTitle] = useState('')
+  const [propertyLocation, setPropertyLocation] = useState('')
+  const [propertyAddress, setPropertyAddress] = useState('')
+  const [propertyPrice, setPropertyPrice] = useState('')
+  const [propertySquare, setPropertySquare] = useState('')
+  const [propertyBeds, setPropertyBeds] = useState('')
+  const [propertyRooms, setPropertyRooms] = useState('')
+  const [propertyDesc, setPropertyDesc] = useState('')
+
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  const [activePreviewIndex, setActivePreviewIndex] = useState(0)
+
+  const [createProperty, { loading: createLoading }] = useMutation<CreatePropertyResponse, CreatePropertyVariables>(CREATE_PROPERTY)
+
+  const {
+    data: propertiesData,
+    loading: propertiesLoading,
+    error: propertiesError,
+    refetch: refetchProperties,
+  } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+    skip: !memberId,
+    variables: {
+      input: {
+        page: 1,
+        limit: 100,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {
+          memberId: memberId || undefined,
+        },
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const myProperties = useMemo(
+    () => (propertiesData?.getProperties?.list || []).map(toLocalPropertyCard),
+    [propertiesData],
+  )
+  const mainPreviewImage = previewUrls[activePreviewIndex] || previewUrls[0] || ''
+  const sidePreviewImages = previewUrls
+    .map((image, index) => ({ image, index }))
+    .filter((item) => item.index !== activePreviewIndex)
+    .slice(0, 4)
+
+  const resetForm = () => {
+    previewUrls.forEach((url) => URL.revokeObjectURL(url))
+    setPropertyType('VILLA')
+    setPropertyTitle('')
+    setPropertyLocation('')
+    setPropertyAddress('')
+    setPropertyPrice('')
+    setPropertySquare('')
+    setPropertyBeds('')
+    setPropertyRooms('')
+    setPropertyDesc('')
+    setSelectedFiles([])
+    setPreviewUrls([])
+    setActivePreviewIndex(0)
+  }
+
+  const handleImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+
+    const maxSizeInBytes = 5 * 1024 * 1024
+    const hasInvalidFile = files.some((file) => !file.type.startsWith('image/') || file.size > maxSizeInBytes)
+    if (hasInvalidFile) {
+      setSubmitSuccess('')
+      setSubmitError('Each file must be an image and smaller than 5MB.')
+      e.target.value = ''
+      return
+    }
+
+    const existingKeys = new Set(selectedFiles.map((file) => `${file.name}-${file.size}-${file.lastModified}`))
+    const filesToAdd = files.filter((file) => !existingKeys.has(`${file.name}-${file.size}-${file.lastModified}`))
+
+    if (filesToAdd.length === 0) {
+      setSubmitSuccess('')
+      setSubmitError('The selected images have already been added.')
+      e.target.value = ''
+      return
+    }
+
+    const previews = filesToAdd.map((file) => URL.createObjectURL(file))
+
+    setSelectedFiles((prev) => [...prev, ...filesToAdd])
+    setPreviewUrls((prev) => [...prev, ...previews])
+    if (previewUrls.length === 0) {
+      setActivePreviewIndex(0)
+    }
+    setSubmitError('')
+    e.target.value = ''
+  }
+
+  const handleRemoveImage = (indexToRemove: number) => {
+    setSelectedFiles((prev) => prev.filter((_, index) => index !== indexToRemove))
+    setPreviewUrls((prev) => {
+      const removed = prev[indexToRemove]
+      if (removed) URL.revokeObjectURL(removed)
+      const next = prev.filter((_, index) => index !== indexToRemove)
+      if (next.length === 0) {
+        setActivePreviewIndex(0)
+      } else if (activePreviewIndex >= next.length) {
+        setActivePreviewIndex(next.length - 1)
+      }
+      return next
+    })
+  }
+
+  const handleCreateProperty = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitError('')
+    setSubmitSuccess('')
+
+    const numericPrice = Number(propertyPrice)
+    const numericSquare = Number(propertySquare)
+    const numericBeds = Number(propertyBeds)
+    const numericRooms = Number(propertyRooms)
+
+    if (!propertyTitle.trim() || !propertyLocation.trim() || !propertyAddress.trim() || !propertyDesc.trim()) {
+      setSubmitError('Please fill in all required fields.')
+      return
+    }
+
+    if (selectedFiles.length < 5) {
+      setSubmitError('At least 5 images are required.')
+      return
+    }
+
+    if ([numericPrice, numericSquare, numericBeds, numericRooms].some((value) => Number.isNaN(value) || value <= 0)) {
+      setSubmitError('Price, square, beds, and rooms must be positive numbers.')
+      return
+    }
+
+    try {
+      const uploadedPaths = await uploadImages(selectedFiles, 'property')
+
+      if (uploadedPaths.length < 5) {
+        setSubmitError('The server returned fewer than 5 images. Please try again.')
+        return
+      }
+
+      const { data } = await createProperty({
+        variables: {
+          input: {
+            propertyType,
+            propertyTitle: propertyTitle.trim(),
+            propertyLocation: propertyLocation.trim(),
+            propertyAddress: propertyAddress.trim(),
+            propertyPrice: numericPrice,
+            propertySquare: numericSquare,
+            propertyBeds: numericBeds,
+            propertyRooms: numericRooms,
+            propertyImages: uploadedPaths,
+            propertyDesc: propertyDesc.trim(),
+            propertyRent: true,
+          },
+        },
+      })
+
+      if (!data?.createProperty?._id) {
+        setSubmitError('Listing was not created. Please try again.')
+        return
+      }
+
+      await refetchProperties()
+      setSubmitSuccess('Listing was created successfully.')
+      resetForm()
+      setIsAddOpen(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An error occurred while creating the listing.'
+      setSubmitError(message)
+    }
+  }
 
   return (
     <div>
@@ -13,13 +402,255 @@ export default function AgentProperties() {
           <h2 className="font-display text-2xl font-bold text-foreground">My Properties</h2>
           <p className="text-sm text-muted-foreground mt-1">{myProperties.length} listings</p>
         </div>
-        <button className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 gentle-animation">
+        <button
+          type="button"
+          onClick={() => {
+            setIsAddOpen(true)
+            setSubmitError('')
+            setSubmitSuccess('')
+          }}
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 gentle-animation"
+        >
           <Plus className="w-4 h-4" />
           Add Listing
         </button>
       </div>
 
+      {isAddOpen && (
+        <div className="mb-8 bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-display text-lg font-semibold text-foreground">Add New Listing</h3>
+            <button
+              type="button"
+              onClick={() => setIsAddOpen(false)}
+              className="p-1.5 rounded-lg hover:bg-muted gentle-animation"
+            >
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateProperty} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Property Type</label>
+              <select
+                value={propertyType}
+                onChange={(e) => setPropertyType(e.target.value as PropertyType)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+              >
+                <option value="VILLA">Villa</option>
+                <option value="HOTEL">Hotel</option>
+                <option value="SANATORIUM">Sanatorium</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Title</label>
+              <input
+                value={propertyTitle}
+                onChange={(e) => setPropertyTitle(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                placeholder="Chimgan Mountain Villa"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Location</label>
+              <input
+                value={propertyLocation}
+                onChange={(e) => setPropertyLocation(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                placeholder="Chimgan, Uzbekistan"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Address</label>
+              <input
+                value={propertyAddress}
+                onChange={(e) => setPropertyAddress(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                placeholder="Street, house number"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Price (night)</label>
+              <input
+                type="number"
+                min={1}
+                value={propertyPrice}
+                onChange={(e) => setPropertyPrice(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Square (m²)</label>
+              <input
+                type="number"
+                min={1}
+                value={propertySquare}
+                onChange={(e) => setPropertySquare(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Beds</label>
+              <input
+                type="number"
+                min={1}
+                value={propertyBeds}
+                onChange={(e) => setPropertyBeds(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-foreground mb-1.5 block">Rooms</label>
+              <input
+                type="number"
+                min={1}
+                value={propertyRooms}
+                onChange={(e) => setPropertyRooms(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm text-foreground mb-1.5 block">Property Images</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImagesChange}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-primary-foreground"
+              />
+              <p className={`text-xs mt-1 ${selectedFiles.length >= 5 ? 'text-black-600' : 'text-destructive'}`}>
+                Minimum required images: 5. Selected images: {selectedFiles.length}
+              </p>
+
+              {previewUrls.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                  <div className="relative aspect-[4/3] rounded-2xl overflow-hidden border border-border bg-background cursor-pointer group">
+                    <img
+                      src={mainPreviewImage}
+                      alt={`Main preview ${activePreviewIndex + 1}`}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(activePreviewIndex)}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {sidePreviewImages.map(({ image, index }) => (
+                      <div
+                        key={`${image.slice(0, 16)}-${index}`}
+                        className="relative aspect-[4/3] rounded-xl overflow-hidden border border-border bg-background cursor-pointer group"
+                        onClick={() => setActivePreviewIndex(index)}
+                      >
+                        <img
+                          src={image}
+                          alt={`Property ${index + 1}`}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        />
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            handleRemoveImage(index)
+                          }}
+                          className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white hover:bg-black/80"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {previewUrls.length > 5 && (
+                <div className="mt-3">
+                  <p className="text-xs text-muted-foreground mb-2">All selected images</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {previewUrls.map((image, index) => (
+                      <button
+                        key={`all-preview-${index}`}
+                        type="button"
+                        onClick={() => setActivePreviewIndex(index)}
+                        className={`shrink-0 w-20 h-20 rounded-lg overflow-hidden border gentle-animation ${
+                          activePreviewIndex === index ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+                        }`}
+                      >
+                        <img src={image} alt={`All preview ${index + 1}`} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm text-foreground mb-1.5 block">Description</label>
+              <textarea
+                value={propertyDesc}
+                onChange={(e) => setPropertyDesc(e.target.value)}
+                className="w-full min-h-24 bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+
+            <div className="md:col-span-2 flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={createLoading}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-60 gentle-animation"
+              >
+                <Plus className="w-4 h-4" />
+                {createLoading ? 'Adding...' : 'Create Listing'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm()
+                  setIsAddOpen(false)
+                }}
+                className="border border-border text-foreground px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-muted gentle-animation"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {submitError && (
+              <p className="md:col-span-2 text-sm text-destructive">{submitError}</p>
+            )}
+
+            {submitSuccess && (
+              <p className="md:col-span-2 text-sm text-green-600">{submitSuccess}</p>
+            )}
+          </form>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {propertiesLoading && (
+          <p className="text-sm text-muted-foreground">Loading your properties...</p>
+        )}
+
+        {propertiesError && (
+          <p className="text-sm text-destructive">Failed to load properties: {propertiesError.message}</p>
+        )}
+
+        {!propertiesLoading && !propertiesError && myProperties.length === 0 && (
+          <p className="text-sm text-muted-foreground">No properties found for this agent yet.</p>
+        )}
+
         {myProperties.map((p) => (
           <div key={p.id} className="bg-card border border-border rounded-2xl overflow-hidden">
             <div className="relative aspect-[16/9] overflow-hidden">

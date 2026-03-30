@@ -7,7 +7,7 @@ import { properties, amenityLabels, type PropertyCategory } from '@/data/mockDat
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
-import { clearAccessToken, getAccessToken, getAuthChangedEventName } from '@/lib/auth'
+import { clearAccessToken, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
 import type { DateRange } from 'react-day-picker'
 
 const categories: { label: string; value: PropertyCategory | 'all' }[] = [
@@ -34,12 +34,12 @@ export default function Properties() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'rating' | 'reviews'>('rating')
   const [likedIds, setLikedIds] = useState<string[]>([])
-  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()))
+  const [hasAuthSession, setHasAuthSession] = useState(isAuthenticated())
 
   const authEventName = getAuthChangedEventName()
 
   useEffect(() => {
-    const syncAuthState = () => setIsAuthenticated(Boolean(getAccessToken()))
+    const syncAuthState = () => setHasAuthSession(isAuthenticated())
     window.addEventListener('storage', syncAuthState)
     window.addEventListener(authEventName, syncAuthState)
     return () => {
@@ -88,7 +88,7 @@ export default function Properties() {
             ROOM<span className="text-gold">i</span>
           </Link>
           <div className="flex items-center gap-3">
-            {isAuthenticated ? (
+            {hasAuthSession ? (
               <>
                 <Link to="/my-page" className="text-sm font-medium text-foreground hover:text-gold gentle-animation">My Account</Link>
                 <button

@@ -11,12 +11,8 @@ export interface Member {
   memberNick: string
   memberFullName: string | null
   memberImage: string
-  memberAddress: string | null
-  memberDesc: string | null
   memberProperties: number
   memberArticles: number
-  memberFollowers: number
-  memberFollowings: number
   memberPoints: number
   memberLikes: number
   memberViews: number

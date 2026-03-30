@@ -1,23 +1,71 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Phone, Lock, User, BriefcaseBusiness } from 'lucide-react'
+import { useMutation } from '@apollo/client/react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { SIGN_UP } from '@/graphql/user/mutation'
+
+type SignUpResponse = {
+  signup: {
+    _id: string
+    memberNick: string
+  }
+}
+
+type SignUpVariables = {
+  input: {
+    memberType: 'USER' | 'AGENT'
+    memberPhone: string
+    memberNick: string
+    memberPassword: string
+    memberFullName: string
+  }
+}
 
 export default function SignUp() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
+  const [memberNick, setMemberNick] = useState('')
+  const [memberType, setMemberType] = useState<'USER' | 'AGENT'>('USER')
+  const [phoneNumber, setPhoneNumber] = useState('')
   const [password, setPassword] = useState('')
   const [agreedToTerms, setAgreedToTerms] = useState(false)
+  const [formError, setFormError] = useState('')
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [signUpMember, { loading: signUpLoading }] = useMutation<SignUpResponse, SignUpVariables>(SIGN_UP)
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Connect your backend here
-    console.log({ fullName, email, password, agreedToTerms })
+    setFormError('')
+
+    try {
+      const { data } = await signUpMember({
+        variables: {
+          input: {
+            memberType,
+            memberPhone: phoneNumber.trim(),
+            memberNick: memberNick.trim(),
+            memberPassword: password,
+            memberFullName: fullName.trim(),
+          },
+        },
+      })
+
+      if (!data?.signup?._id) {
+        setFormError('Ro‘yxatdan o‘tish muvaffaqiyatsiz bo‘ldi.')
+        return
+      }
+
+      navigate('/sign-in')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Ro‘yxatdan o‘tishda xatolik yuz berdi.'
+      setFormError(message)
+    }
   }
 
   return (
@@ -88,16 +136,74 @@ export default function SignUp() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="memberNick">Nickname</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="memberNick"
+                  type="text"
+                  placeholder="your nickname"
+                  value={memberNick}
+                  onChange={(e) => setMemberNick(e.target.value)}
                   className="pl-10 h-12 bg-card border-border"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Account Type</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMemberType('USER')}
+                  className={`rounded-xl border px-4 py-3 text-left gentle-animation ${
+                    memberType === 'USER'
+                      ? 'border-gold bg-gold/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted/50'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <User className="w-4 h-4" />
+                    User
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Stays and bookings
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMemberType('AGENT')}
+                  className={`rounded-xl border px-4 py-3 text-left gentle-animation ${
+                    memberType === 'AGENT'
+                      ? 'border-gold bg-gold/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted/50'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <BriefcaseBusiness className="w-4 h-4" />
+                    Agent
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Manage listings
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phoneNumber">Phone Number</Label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="phoneNumber"
+                  type="tel"
+                  placeholder="+998901234567"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="pl-10 h-12 bg-card border-border"
+                  autoComplete="tel"
                   required
                 />
               </div>
@@ -145,9 +251,13 @@ export default function SignUp() {
               </Label>
             </div>
 
-            <Button type="submit" className="w-full h-12 text-base font-medium" disabled={!agreedToTerms}>
-              Create Account
+            <Button type="submit" className="w-full h-12 text-base font-medium" disabled={!agreedToTerms || signUpLoading}>
+              {signUpLoading ? 'Creating Account...' : 'Create Account'}
             </Button>
+
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
           </form>
 
           <div className="relative my-8">

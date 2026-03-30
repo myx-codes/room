@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, Globe, User } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { clearAccessToken, getAccessToken, getAuthChangedEventName } from '@/lib/auth'
+import { clearAccessToken, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
 
 const navLinks = [
   { label: 'Villas', type: 'route' as const, to: '/properties?category=villa' },
@@ -28,7 +28,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isLangOpen, setIsLangOpen] = useState(false)
   const [currentLang, setCurrentLang] = useState('en')
-  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()))
+  const [hasAuthSession, setHasAuthSession] = useState(isAuthenticated())
   const langRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
   }, [])
 
   useEffect(() => {
-    const syncAuthState = () => setIsAuthenticated(Boolean(getAccessToken()))
+    const syncAuthState = () => setHasAuthSession(isAuthenticated())
     const authEvent = getAuthChangedEventName()
 
     window.addEventListener('storage', syncAuthState)
@@ -173,7 +173,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
               </AnimatePresence>
             </div>
 
-            {isAuthenticated ? (
+            {hasAuthSession ? (
               <>
                 <Link
                   to="/my-page"
@@ -284,7 +284,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
                 </button>
               ))}
             </div>
-            {isAuthenticated ? (
+            {hasAuthSession ? (
               <>
                 <Link
                   to="/my-page"

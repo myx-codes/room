@@ -1,15 +1,176 @@
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { User, Phone, Save } from 'lucide-react'
-import { getMemberProfile } from '@/lib/auth'
+import { useMutation } from '@apollo/client/react'
+import { UPDATE_MEMBER } from '@/graphql/user/mutation'
+import { getMemberProfile, setMemberProfile } from '@/lib/auth'
+import type { StoredMemberProfile } from '@/lib/auth'
+import type { Member } from '@/types/member'
+
+type UpdateMemberResponse = {
+  updateMember: Member
+}
+
+type UpdateMemberVariables = {
+  input: {
+    _id: string
+    memberNick: string
+    memberPhone: string
+    memberFullName: string
+    memberImage: string
+  }
+}
 
 export default function MyProfile() {
-  const backendProfile = getMemberProfile()
-  const [fullName, setFullName] = useState(backendProfile?.memberFullName || '')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [profile, setProfile] = useState<StoredMemberProfile | null>(getMemberProfile())
+  const [fullName, setFullName] = useState(profile?.memberFullName || '')
+  const [memberNick, setMemberNick] = useState(profile?.memberNick || '')
+  const [memberPhone, setMemberPhone] = useState(profile?.memberPhone || '')
+  const [memberImage, setMemberImage] = useState(profile?.memberImage || '')
+  const [submitError, setSubmitError] = useState('')
+  const [submitSuccess, setSubmitSuccess] = useState('')
 
-  const memberNick = backendProfile?.memberNick || '-'
-  const memberPhone = backendProfile?.memberPhone || '-'
+  const [updateMember, { loading: isSaving }] = useMutation<UpdateMemberResponse, UpdateMemberVariables>(UPDATE_MEMBER)
+
+  const backendProfile = profile
+
   const memberType = backendProfile?.memberType || '-'
   const memberStatus = backendProfile?.memberStatus || '-'
+  const normalizedFullName = useMemo(() => fullName.trim(), [fullName])
+  const normalizedNick = useMemo(() => memberNick.trim(), [memberNick])
+  const normalizedPhone = useMemo(() => memberPhone.trim(), [memberPhone])
+  const normalizedImage = useMemo(() => memberImage.trim(), [memberImage])
+  const originalFullName = backendProfile?.memberFullName || ''
+  const originalNick = backendProfile?.memberNick || ''
+  const originalPhone = backendProfile?.memberPhone || ''
+  const originalImage = backendProfile?.memberImage || ''
+  const hasChanges =
+    normalizedFullName !== originalFullName ||
+    normalizedNick !== originalNick ||
+    normalizedPhone !== originalPhone ||
+    normalizedImage !== originalImage
+
+  const handleSelectPhoto = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+
+    if (!selectedFile) return
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setSubmitSuccess('')
+      setSubmitError('Faqat rasm fayl tanlang (jpg, png, webp...).')
+      return
+    }
+
+    const maxSizeInBytes = 2 * 1024 * 1024
+    if (selectedFile.size > maxSizeInBytes) {
+      setSubmitSuccess('')
+      setSubmitError('Rasm hajmi 2MB dan kichik bo\'lishi kerak.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      if (!result) {
+        setSubmitSuccess('')
+        setSubmitError('Rasmni o\'qishda xatolik yuz berdi.')
+        return
+      }
+
+      setMemberImage(result)
+      setSubmitError('')
+    }
+
+    reader.onerror = () => {
+      setSubmitSuccess('')
+      setSubmitError('Rasmni o\'qishda xatolik yuz berdi.')
+    }
+
+    reader.readAsDataURL(selectedFile)
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!backendProfile) {
+      setSubmitError('Akkount ma\'lumotlari topilmadi. Qayta login qiling.')
+      setSubmitSuccess('')
+      return
+    }
+
+    if (!hasChanges) {
+      setSubmitError('')
+      setSubmitSuccess('O\'zgarish yo\'q.')
+      return
+    }
+
+    if (!normalizedNick || !normalizedPhone) {
+      setSubmitSuccess('')
+      setSubmitError('Member Nick va Phone majburiy.')
+      return
+    }
+
+    setSubmitError('')
+    setSubmitSuccess('')
+
+    try {
+      const { data } = await updateMember({
+        variables: {
+          input: {
+            _id: backendProfile._id,
+            memberNick: normalizedNick,
+            memberPhone: normalizedPhone,
+            memberFullName: normalizedFullName,
+            memberImage: normalizedImage,
+          },
+        },
+      })
+
+      if (!data?.updateMember) {
+        setSubmitError('Profil yangilanmadi. Qayta urinib ko\'ring.')
+        return
+      }
+
+      const updated = data.updateMember
+      const nextProfile: StoredMemberProfile = {
+        _id: updated._id,
+        memberType: updated.memberType,
+        memberStatus: updated.memberStatus,
+        memberAuthType: updated.memberAuthType,
+        memberPhone: updated.memberPhone,
+        memberNick: updated.memberNick,
+        memberFullName: updated.memberFullName,
+        memberImage: updated.memberImage || backendProfile.memberImage,
+        memberProperties: updated.memberProperties,
+        memberArticles: updated.memberArticles,
+        memberPoints: updated.memberPoints,
+        memberLikes: updated.memberLikes,
+        memberViews: updated.memberViews,
+        memberComments: updated.memberComments,
+        memberRank: updated.memberRank,
+        memberWarnings: updated.memberWarnings,
+        memberBlocks: updated.memberBlocks,
+        deletedAt: updated.deletedAt,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      }
+
+      setMemberProfile(nextProfile)
+      setProfile(nextProfile)
+      setFullName(nextProfile.memberFullName || '')
+      setMemberNick(nextProfile.memberNick || '')
+      setMemberPhone(nextProfile.memberPhone || '')
+      setMemberImage(nextProfile.memberImage || '')
+      setSubmitSuccess('Profil muvaffaqiyatli yangilandi.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Profilni yangilashda xatolik yuz berdi.'
+      setSubmitError(message)
+    }
+  }
 
   return (
     <div>
@@ -22,47 +183,58 @@ export default function MyProfile() {
         {/* Avatar */}
         <div className="flex items-center gap-4 mb-8">
           <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center">
-            {backendProfile?.memberImage ? (
-              <img src={backendProfile.memberImage} alt={memberNick} className="w-full h-full object-cover rounded-full" />
+            {normalizedImage || backendProfile?.memberImage ? (
+              <img src={normalizedImage || backendProfile?.memberImage} alt={normalizedNick || '-'} className="w-full h-full object-cover rounded-full" />
             ) : (
               <User className="w-8 h-8 text-muted-foreground" />
             )}
           </div>
           <div>
-            <p className="font-medium text-foreground">{memberNick}</p>
+            <p className="font-medium text-foreground">{normalizedNick || '-'}</p>
             {typeof backendProfile?.memberRank === 'number' && (
               <p className="text-xs text-muted-foreground mt-1">Rank: {backendProfile.memberRank}</p>
             )}
-            <button className="text-sm text-gold hover:underline mt-1">Change photo</button>
+            <button
+              type="button"
+              onClick={handleSelectPhoto}
+              className="text-sm text-gold hover:underline mt-1"
+            >
+              Change photo
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
           </div>
         </div>
 
-        {backendProfile?.memberDesc && (
-          <div className="mb-6 p-4 rounded-xl bg-secondary/50 border border-border">
-            <p className="text-sm text-muted-foreground">{backendProfile.memberDesc}</p>
-            {typeof backendProfile.memberLikes === 'number' && (
-              <p className="text-xs text-muted-foreground mt-2">Likes: {backendProfile.memberLikes}</p>
-            )}
-          </div>
-        )}
-
-        <div className="space-y-5">
+        <form onSubmit={handleSave} className="space-y-5">
           <div>
             <label className="text-sm font-medium text-foreground mb-1.5 block">Member Nick</label>
             <div className="flex items-center gap-3 bg-background border border-border rounded-xl px-4 py-3">
               <User className="w-4 h-4 text-muted-foreground" />
-              <input value={memberNick} disabled className="bg-transparent text-foreground text-sm w-full outline-none opacity-70" />
+              <input
+                value={memberNick}
+                onChange={(e) => setMemberNick(e.target.value)}
+                className="bg-transparent text-foreground text-sm w-full outline-none"
+              />
             </div>
           </div>
 
           <div>
             <label className="text-sm font-medium text-foreground mb-1.5 block">Phone</label>
-            <div className="flex items-center gap-3 bg-background border border-border rounded-xl px-4 py-3 opacity-60">
+            <div className="flex items-center gap-3 bg-background border border-border rounded-xl px-4 py-3">
               <Phone className="w-4 h-4 text-muted-foreground" />
-              <input value={memberPhone} disabled className="bg-transparent text-foreground text-sm w-full outline-none" />
+              <input
+                value={memberPhone}
+                onChange={(e) => setMemberPhone(e.target.value)}
+                className="bg-transparent text-foreground text-sm w-full outline-none"
+              />
             </div>
           </div>
-
           <div>
             <label className="text-sm font-medium text-foreground mb-1.5 block">Full Name</label>
             <div className="flex items-center gap-3 bg-background border border-border rounded-xl px-4 py-3">
@@ -83,11 +255,23 @@ export default function MyProfile() {
             </div>
           </div>
 
-          <button className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 gentle-animation">
+          <button
+            type="submit"
+            disabled={isSaving || !backendProfile || !hasChanges}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 gentle-animation disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Save className="w-4 h-4" />
-            Save Changes
+            {isSaving ? 'Saving...' : 'Save Changes'}
           </button>
-        </div>
+
+          {submitError && (
+            <p className="text-sm text-destructive">{submitError}</p>
+          )}
+
+          {submitSuccess && (
+            <p className="text-sm text-green-600">{submitSuccess}</p>
+          )}
+        </form>
       </div>
     </div>
   )

@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { CHECK_AUTH_QUERY, LOGIN_MUTATION } from '@/graphql/member'
-import { clearAccessToken, setAccessToken, setMemberProfile } from '@/lib/auth'
+import { LOGIN } from '@/graphql/user/mutation'
+import { CHECK_AUTH } from '@/graphql/user/query'
+import { clearAccessToken, setMemberProfile } from '@/lib/auth'
 import type { Member } from '@/types/member'
 
 type LoginResponse = {
@@ -27,8 +28,8 @@ export default function SignIn() {
   const [rememberMe, setRememberMe] = useState(false)
   const [formError, setFormError] = useState('')
 
-  const [loginMember, { loading: loginLoading }] = useMutation<LoginResponse>(LOGIN_MUTATION)
-  const [checkAuth, { loading: checkAuthLoading }] = useLazyQuery<CheckAuthResponse>(CHECK_AUTH_QUERY, {
+  const [loginMember, { loading: loginLoading }] = useMutation<LoginResponse>(LOGIN)
+  const [checkAuth, { loading: checkAuthLoading }] = useLazyQuery<CheckAuthResponse>(CHECK_AUTH, {
     fetchPolicy: 'network-only',
   })
 
@@ -44,13 +45,11 @@ export default function SignIn() {
         },
       })
 
-      const token = data?.login?.accessToken
-      if (!token) {
-        setFormError('Login muvaffaqiyatsiz: access token qaytmadi.')
+      if (!data?.login) {
+        setFormError('Login muvaffaqiyatsiz bo\'ldi.')
         return
       }
 
-      setAccessToken(token)
       setMemberProfile({
         _id: data.login._id,
         memberType: data.login.memberType,
@@ -60,14 +59,10 @@ export default function SignIn() {
         memberNick: data.login.memberNick,
         memberFullName: data.login.memberFullName,
         memberImage: data.login.memberImage,
-        memberAddress: data.login.memberAddress,
         memberProperties: data.login.memberProperties,
         memberArticles: data.login.memberArticles,
-        memberFollowers: data.login.memberFollowers,
-        memberFollowings: data.login.memberFollowings,
         memberPoints: data.login.memberPoints,
         memberRank: data.login.memberRank,
-        memberDesc: data.login.memberDesc,
         memberLikes: data.login.memberLikes,
         memberViews: data.login.memberViews,
         memberComments: data.login.memberComments,
@@ -82,7 +77,7 @@ export default function SignIn() {
         await checkAuth()
       } catch {
         clearAccessToken()
-        setFormError('Token tekshiruvi muvaffaqiyatsiz bo‘ldi. Qayta urinib ko‘ring.')
+        setFormError('Sessiya tekshiruvi muvaffaqiyatsiz bo‘ldi. Qayta urinib ko‘ring.')
         return
       }
 
@@ -90,7 +85,13 @@ export default function SignIn() {
         // Hozircha localStorage ishlatilmoqda; eslatma uchun joy qoldirildi.
       }
 
-      navigate('/my-page')
+      const destinationByMemberType: Record<string, string> = {
+        AGENT: '/agent',
+        ADMIN: '/admin',
+        USER: '/my-page',
+      }
+
+      navigate(destinationByMemberType[data.login.memberType] || '/my-page')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login xatosi yuz berdi.'
       setFormError(message)

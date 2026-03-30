@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { CREATE_PROPERTY } from '@/graphql/user/mutation'
 import { GET_PROPERTIES } from '@/graphql/user/query'
 import { getMemberProfile } from '@/lib/auth'
+import { amenityLabels } from '@/data/mockData'
 
 type PropertyType = 'VILLA' | 'HOTEL' | 'SANATORIUM'
 
@@ -80,8 +81,27 @@ type ImagesUploaderPayload = {
   }>
 }
 
+type SanatoriumHighlight = {
+  label: string
+  desc: string
+}
+
+type SanatoriumMeta = {
+  badge: string
+  quote: string
+  highlights: SanatoriumHighlight[]
+}
+
 const FALLBACK_IMAGE = '/assets/hero-villa.jpg'
 const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
+const AMENITY_OPTIONS = Object.entries(amenityLabels)
+const SANATORIUM_META_MARKER = 'ROOMI_SANATORIUM_META:'
+const DEFAULT_SANATORIUM_HIGHLIGHTS: SanatoriumHighlight[] = [
+  { label: 'Mineral Source', desc: 'Healing Waters' },
+  { label: 'Detox Menu', desc: 'Organic Nutrition' },
+  { label: 'Yoga Zen', desc: 'Mental Health' },
+  { label: 'Expert Care', desc: '24/7 Support' },
+]
 
 function getBackendOrigin(): string {
   try {
@@ -119,6 +139,30 @@ function toLocalPropertyCard(item: CreatedProperty): LocalPropertyCard {
     image: resolveImageUrl(item.propertyImages?.[0]),
     category: mapPropertyTypeToCategory(item.propertyType),
   }
+}
+
+function buildDescriptionWithExtras(
+  baseDescription: string,
+  amenities: string[],
+  sanatoriumMeta?: SanatoriumMeta,
+): string {
+  const cleanDescription = baseDescription.trim()
+  const chunks = [cleanDescription]
+
+  if (amenities.length > 0) {
+    const amenityText = amenities
+      .map((key) => amenityLabels[key] || key)
+      .join(', ')
+
+    chunks.push(`Amenities: ${amenityText}`)
+  }
+
+  if (sanatoriumMeta) {
+    const encoded = encodeURIComponent(JSON.stringify(sanatoriumMeta))
+    chunks.push(`${SANATORIUM_META_MARKER}${encoded}`)
+  }
+
+  return chunks.filter(Boolean).join('\n\n')
 }
 
 function getCookieValue(name: string): string {
@@ -226,6 +270,12 @@ export default function AgentProperties() {
   const [propertyBeds, setPropertyBeds] = useState('')
   const [propertyRooms, setPropertyRooms] = useState('')
   const [propertyDesc, setPropertyDesc] = useState('')
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([])
+  const [sanatoriumBadge, setSanatoriumBadge] = useState('Wellness & Spa')
+  const [sanatoriumQuote, setSanatoriumQuote] = useState('Experience the perfect harmony of nature and modern medicine in our exclusive retreats.')
+  const [sanatoriumHighlights, setSanatoriumHighlights] = useState<SanatoriumHighlight[]>(
+    DEFAULT_SANATORIUM_HIGHLIGHTS,
+  )
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
@@ -275,9 +325,25 @@ export default function AgentProperties() {
     setPropertyBeds('')
     setPropertyRooms('')
     setPropertyDesc('')
+    setSelectedAmenities([])
+    setSanatoriumBadge('Wellness & Spa')
+    setSanatoriumQuote('Experience the perfect harmony of nature and modern medicine in our exclusive retreats.')
+    setSanatoriumHighlights(DEFAULT_SANATORIUM_HIGHLIGHTS.map((item) => ({ ...item })))
     setSelectedFiles([])
     setPreviewUrls([])
     setActivePreviewIndex(0)
+  }
+
+  const updateSanatoriumHighlight = (index: number, field: 'label' | 'desc', value: string) => {
+    setSanatoriumHighlights((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)))
+  }
+
+  const toggleAmenity = (amenityKey: string) => {
+    setSelectedAmenities((prev) =>
+      prev.includes(amenityKey)
+        ? prev.filter((item) => item !== amenityKey)
+        : [...prev, amenityKey],
+    )
   }
 
   const handleImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -344,6 +410,22 @@ export default function AgentProperties() {
       return
     }
 
+    if (selectedAmenities.length === 0) {
+      setSubmitError('Please select at least one amenity.')
+      return
+    }
+
+    if (propertyType === 'SANATORIUM') {
+      const hasInvalidHighlights = sanatoriumHighlights.some(
+        (item) => !item.label.trim() || !item.desc.trim(),
+      )
+
+      if (!sanatoriumBadge.trim() || !sanatoriumQuote.trim() || hasInvalidHighlights) {
+        setSubmitError('Please complete all sanatorium details.')
+        return
+      }
+    }
+
     if (selectedFiles.length < 5) {
       setSubmitError('At least 5 images are required.')
       return
@@ -362,7 +444,20 @@ export default function AgentProperties() {
         return
       }
 
+      const sanatoriumMeta: SanatoriumMeta | undefined =
+        propertyType === 'SANATORIUM'
+          ? {
+              badge: sanatoriumBadge.trim(),
+              quote: sanatoriumQuote.trim(),
+              highlights: sanatoriumHighlights.map((item) => ({
+                label: item.label.trim(),
+                desc: item.desc.trim(),
+              })),
+            }
+          : undefined
+
       const { data } = await createProperty({
+
         variables: {
           input: {
             propertyType,
@@ -374,7 +469,7 @@ export default function AgentProperties() {
             propertyBeds: numericBeds,
             propertyRooms: numericRooms,
             propertyImages: uploadedPaths,
-            propertyDesc: propertyDesc.trim(),
+            propertyDesc: buildDescriptionWithExtras(propertyDesc, selectedAmenities, sanatoriumMeta),
             propertyRent: true,
           },
         },
@@ -516,6 +611,77 @@ export default function AgentProperties() {
                 className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
               />
             </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm text-foreground mb-1.5 block">Amenities</label>
+              <div className="flex flex-wrap gap-2">
+                {AMENITY_OPTIONS.map(([key, label]) => {
+                  const isSelected = selectedAmenities.includes(key)
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => toggleAmenity(key)}
+                      className={`px-3 py-1.5 rounded-lg text-sm border gentle-animation ${
+                        isSelected
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-background text-foreground hover:bg-muted'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className={`text-xs mt-1 ${selectedAmenities.length > 0 ? 'text-muted-foreground' : 'text-destructive'}`}>
+                Selected amenities: {selectedAmenities.length}
+              </p>
+            </div>
+
+            {propertyType === 'SANATORIUM' && (
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 border border-border rounded-xl p-4 bg-background/40">
+                <div className="md:col-span-2">
+                  <h4 className="text-sm font-semibold text-foreground">Sanatorium Showcase (Featured Section)</h4>
+                </div>
+
+                <div>
+                  <label className="text-sm text-foreground mb-1.5 block">Badge</label>
+                  <input
+                    value={sanatoriumBadge}
+                    onChange={(e) => setSanatoriumBadge(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                    placeholder="Wellness & Spa"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm text-foreground mb-1.5 block">Quote</label>
+                  <input
+                    value={sanatoriumQuote}
+                    onChange={(e) => setSanatoriumQuote(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                    placeholder="A short highlight sentence"
+                  />
+                </div>
+
+                {sanatoriumHighlights.map((item, index) => (
+                  <div key={`sanatorium-${index}`} className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input
+                      value={item.label}
+                      onChange={(e) => updateSanatoriumHighlight(index, 'label', e.target.value)}
+                      className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                      placeholder="Card title"
+                    />
+                    <input
+                      value={item.desc}
+                      onChange={(e) => updateSanatoriumHighlight(index, 'desc', e.target.value)}
+                      className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
+                      placeholder="Card subtitle"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="md:col-span-2">
               <label className="text-sm text-foreground mb-1.5 block">Property Images</label>

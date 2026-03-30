@@ -1,8 +1,10 @@
 import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
+import { useQuery } from '@apollo/client/react'
 import villaImg from '@/assets/category-villa.jpg'
 import hotelImg from '@/assets/category-hotel.jpg'
 import sanatoriumImg from '@/assets/category-sanatorium.jpg'
+import { GET_PROPERTIES } from '@/graphql/user/query'
 
 const categories = [
   {
@@ -28,7 +30,50 @@ const categories = [
   },
 ]
 
+type GetPropertiesResponse = {
+  getProperties: {
+    list: Array<{
+      propertyType: string
+    }>
+  }
+}
+
+type GetPropertiesVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: Record<string, never>
+  }
+}
+
 export function Categories() {
+  const { data } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 100,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {},
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const typeCount = (data?.getProperties?.list || []).reduce<Record<string, number>>((acc, item) => {
+    const key = item.propertyType.toUpperCase()
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  const countByCard: Record<string, number> = {
+    'Villas & Dachas': typeCount.VILLA || 0,
+    Hotels: typeCount.HOTEL || 0,
+    'Health Sanatoriums': typeCount.SANATORIUM || 0,
+  }
+
   return (
     <section id="categories" className="py-24 sm:py-32 px-6">
       <div className="max-w-7xl mx-auto">
@@ -69,7 +114,7 @@ export function Categories() {
                 <h3 className="font-display text-3xl font-bold text-white mb-3">{cat.title}</h3>
                 <p className="text-white/70 text-sm mb-4 max-w-xs">{cat.description}</p>
                 <div className="flex items-center justify-between">
-                  <span className="text-white/50 text-xs">{cat.count}</span>
+                  <span className="text-white/50 text-xs">{countByCard[cat.title]} properties</span>
                   <div className="flex items-center gap-2 text-gold text-sm font-medium group-hover:gap-3 gentle-animation">
                     Browse <ArrowRight className="w-4 h-4" />
                   </div>

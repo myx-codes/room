@@ -1,8 +1,9 @@
 import { motion, type Variants } from 'framer-motion'
 import { Star, Heart, MapPin, ArrowRight, ShieldCheck, Volume2, VolumeX, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { useQuery } from '@apollo/client/react'
 import { Link } from 'react-router-dom'
-import { properties as mockProperties } from '@/data/mockData'
+import { GET_PROPERTIES } from '@/graphql/user/query'
 
 const categories = [
   { title: "Exclusive Villas", type: "villa", sub: "Private Retreats", color: "text-amber-600", bg: "bg-amber-600" },
@@ -10,7 +11,148 @@ const categories = [
   { title: "Wellness Resorts", type: "sanatorium", sub: "Health & Healing", color: "text-emerald-600", bg: "bg-emerald-600" }
 ]
 
+type PropertyCategory = 'villa' | 'hotel' | 'sanatorium'
+
+type FeaturedProperty = {
+  id: string
+  title: string
+  location: string
+  price: number
+  rating: number
+  reviews: number
+  image: string
+  category: PropertyCategory
+  sanatoriumMeta?: SanatoriumMeta
+}
+
+type SanatoriumMeta = {
+  badge: string
+  quote: string
+  highlights: Array<{
+    label: string
+    desc: string
+  }>
+}
+
+type GetPropertiesResponse = {
+  getProperties: {
+    list: Array<{
+      _id: string
+      propertyType: string
+      propertyLocation: string
+      propertyTitle: string
+      propertyPrice: number
+      propertyRank?: number
+      propertyComments: number
+      propertyImages: string[]
+      propertyDesc?: string | null
+    }>
+  }
+}
+
+type GetPropertiesVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: Record<string, never>
+  }
+}
+
 const easeOutExpo: [number, number, number, number] = [0.16, 1, 0.3, 1]
+const SANATORIUM_META_MARKER = 'ROOMI_SANATORIUM_META:'
+const DEFAULT_SANATORIUM_META: SanatoriumMeta = {
+  badge: 'Wellness & Spa',
+  quote: 'Experience the perfect harmony of nature and modern medicine in our exclusive retreats.',
+  highlights: [
+    { label: 'Mineral Source', desc: 'Healing Waters' },
+    { label: 'Detox Menu', desc: 'Organic Nutrition' },
+    { label: 'Yoga Zen', desc: 'Mental Health' },
+    { label: 'Expert Care', desc: '24/7 Support' },
+  ],
+}
+
+const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
+
+function getBackendOrigin(): string {
+  try {
+    return new URL(GRAPHQL_URL).origin
+  } catch {
+    return 'http://localhost:3008'
+  }
+}
+
+function resolveImageUrl(imagePath?: string): string {
+  if (!imagePath) return '/assets/hero-villa.jpg'
+  if (/^https?:\/\//i.test(imagePath) || imagePath.startsWith('data:') || imagePath.startsWith('blob:')) {
+    return imagePath
+  }
+
+  const cleanPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`
+  return `${getBackendOrigin()}${cleanPath}`
+}
+
+function mapPropertyType(type: string): PropertyCategory {
+  const normalized = type.toUpperCase()
+  if (normalized === 'HOTEL') return 'hotel'
+  if (normalized === 'SANATORIUM') return 'sanatorium'
+  return 'villa'
+}
+
+function parseSanatoriumMeta(description?: string | null): SanatoriumMeta | undefined {
+  if (!description) return undefined
+
+  const match = description.match(/ROOMI_SANATORIUM_META:([^\n]+)/)
+  if (!match) return undefined
+
+  try {
+    const decoded = decodeURIComponent(match[1])
+    const parsed = JSON.parse(decoded) as Partial<SanatoriumMeta>
+    const highlights = Array.isArray(parsed.highlights)
+      ? parsed.highlights
+          .map((item) => ({
+            label: String(item?.label || '').trim(),
+            desc: String(item?.desc || '').trim(),
+          }))
+          .filter((item) => item.label && item.desc)
+      : []
+
+    if (!parsed.badge || !parsed.quote || highlights.length === 0) {
+      return undefined
+    }
+
+    return {
+      badge: String(parsed.badge),
+      quote: String(parsed.quote),
+      highlights,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function formatLocation(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ')
+}
+
+function mapToFeaturedProperty(item: GetPropertiesResponse['getProperties']['list'][number]): FeaturedProperty {
+  return {
+    id: item._id,
+    title: item.propertyTitle,
+    location: formatLocation(item.propertyLocation),
+    price: item.propertyPrice,
+    rating: item.propertyRank || 0,
+    reviews: item.propertyComments || 0,
+    image: resolveImageUrl(item.propertyImages?.[0]),
+    category: mapPropertyType(item.propertyType),
+    sanatoriumMeta: parseSanatoriumMeta(item.propertyDesc),
+  }
+}
 
 // Reusable animation variant for cascading elements
 const cascadeVariants: Variants = {
@@ -23,12 +165,30 @@ const cascadeVariants: Variants = {
 }
 
 export function FeaturedProperties() {
+  const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 100,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {},
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const allProperties = (data?.getProperties?.list || []).map(mapToFeaturedProperty)
+
   return (
     <section id="featured" className="py-24 px-6 bg-[#fcfcfd] overflow-hidden">
       <div className="max-w-7xl mx-auto space-y-40">
+        {loading && <p className="text-sm text-slate-500">Loading featured properties...</p>}
+        {error && <p className="text-sm text-red-600">Failed to load properties: {error.message}</p>}
+
         {categories.map((cat) => {
-          const filteredProps = mockProperties
-            .filter(p => p.category.toLowerCase() === cat.type)
+          const filteredProps = allProperties
+            .filter((p) => p.category === cat.type)
             .slice(0, 4);
 
           if (filteredProps.length === 0) return null;
@@ -81,7 +241,7 @@ export function FeaturedProperties() {
 }
 
 // --- 1. VILLA LAYOUT: FULL WIDTH VIDEO + 3 CARDS BELOW ---
-function VillaVideoHeroLayout({ properties }) {
+function VillaVideoHeroLayout({ properties }: { properties: FeaturedProperty[] }) {
   const mainVilla = properties[0];
   const sideVillas = properties.slice(1, 4);
   const [isMuted, setIsMuted] = useState(true);
@@ -123,8 +283,9 @@ function VillaVideoHeroLayout({ properties }) {
 }
 
 // --- 2. SANATORIUM WIDE CARD: FULLY ANIMATED ---
-function SanatoriumWideCard({ prop, index }) {
+function SanatoriumWideCard({ prop, index }: { prop: FeaturedProperty; index: number }) {
   const isEven = index % 2 === 0;
+  const sanatoriumMeta = prop.sanatoriumMeta || DEFAULT_SANATORIUM_META;
 
   return (
     <div className={`flex flex-col ${isEven ? 'lg:flex-row' : 'lg:flex-row-reverse'} items-center gap-16 lg:gap-24`}>
@@ -162,7 +323,7 @@ function SanatoriumWideCard({ prop, index }) {
       <div className="w-full lg:w-2/5 space-y-8">
         <motion.div custom={0.2} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={cascadeVariants}>
           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold uppercase tracking-widest border border-emerald-100 mb-4">
-            <Sparkles className="w-3.5 h-3.5" /> Wellness & Spa
+            <Sparkles className="w-3.5 h-3.5" /> {sanatoriumMeta.badge}
           </div>
           <h3 className="text-4xl font-display font-bold text-slate-900 leading-tight">{prop.title}</h3>
         </motion.div>
@@ -170,16 +331,11 @@ function SanatoriumWideCard({ prop, index }) {
         <motion.p custom={0.4} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={cascadeVariants}
           className="text-slate-500 text-lg leading-relaxed font-light italic"
         >
-          "Experience the perfect harmony of nature and modern medicine in our exclusive retreats."
+          "{sanatoriumMeta.quote}"
         </motion.p>
         
         <div className="grid grid-cols-2 gap-4">
-          {[
-            { label: 'Mineral Source', desc: 'Healing Waters' },
-            { label: 'Detox Menu', desc: 'Organic Nutrition' },
-            { label: 'Yoga Zen', desc: 'Mental Health' },
-            { label: 'Expert Care', desc: '24/7 Support' }
-          ].map((item, i) => (
+          {sanatoriumMeta.highlights.slice(0, 4).map((item, i) => (
             <motion.div key={i} custom={0.5 + i * 0.1} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={cascadeVariants}
               className="p-4 bg-white rounded-2xl border border-slate-100 hover:border-emerald-200 transition-all shadow-sm"
             >
@@ -200,7 +356,7 @@ function SanatoriumWideCard({ prop, index }) {
 }
 
 // --- 3. STANDARD PROPERTY CARD (Hotel/Villa secondary) ---
-function PropertyCard({ prop, index, compact = false }) {
+function PropertyCard({ prop, index, compact = false }: { prop: FeaturedProperty; index: number; compact?: boolean }) {
   const [isLiked, setIsLiked] = useState(false);
 
   return (

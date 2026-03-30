@@ -93,6 +93,70 @@ export const UPDATE_MEMBER = gql `
 }
 `;
 
+export const CREATE_BOOKINGS = gql `
+mutation CreateBooking($input: BookingInput!) {
+    createBooking(input: $input) {
+        _id
+        bookingStatus
+        bookingCheckIn
+        bookingCheckOut
+        bookingPrice
+        bookingGuests
+        propertyId
+        memberId
+        createdAt
+        updatedAt
+        propertyData {
+            _id
+            propertyType
+            propertyStatus
+            propertyLocation
+            propertyAddress
+            propertyTitle
+            propertyPrice
+            propertySquare
+            propertyBeds
+            propertyRooms
+            propertyViews
+            propertyLikes
+            propertyComments
+            propertyRank
+            propertyImages
+            propertyDesc
+            propertyRent
+            memberId
+            deletedAt
+            constructedAt
+            createdAt
+            updatedAt
+        }
+        memberData {
+            _id
+            memberType
+            memberStatus
+            memberAuthType
+            memberPhone
+            memberNick
+            memberFullName
+            memberImage
+            memberProperties
+            memberArticles
+            memberPoints
+            memberLikes
+            memberViews
+            memberComments
+            memberRank
+            memberWarnings
+            memberBlocks
+            deletedAt
+            createdAt
+            updatedAt
+            accessToken
+        }
+    }
+}
+`
+
 /**************************
  *         AGENT          *
  *************************/

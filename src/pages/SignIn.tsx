@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { LOGIN } from '@/graphql/user/mutation'
 import { CHECK_AUTH } from '@/graphql/user/query'
-import { clearAccessToken, setMemberProfile } from '@/lib/auth'
+import { clearAccessToken, setAccessToken, setMemberProfile } from '@/lib/auth'
 import type { Member } from '@/types/member'
 
 type LoginResponse = {
@@ -73,6 +73,8 @@ export default function SignIn() {
         updatedAt: data.login.updatedAt,
       })
 
+      setAccessToken(data.login.accessToken || '')
+
       try {
         await checkAuth()
       } catch {
@@ -85,13 +87,7 @@ export default function SignIn() {
         // Hozircha localStorage ishlatilmoqda; eslatma uchun joy qoldirildi.
       }
 
-      const destinationByMemberType: Record<string, string> = {
-        AGENT: '/agent',
-        ADMIN: '/admin',
-        USER: '/my-page',
-      }
-
-      navigate(destinationByMemberType[data.login.memberType] || '/my-page')
+      navigate('/')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login xatosi yuz berdi.'
       setFormError(message)

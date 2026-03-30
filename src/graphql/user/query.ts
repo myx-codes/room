@@ -42,3 +42,35 @@ query GetProperties($input: PropertiesInquiry!) {
     }
 }
 `;
+
+export const GET_MY_BOOKINGS = gql `
+query GetMyBookings($input: BookingsInquiry!) {
+    getMyBookings(input: $input) {
+        list {
+            _id
+            bookingStatus
+            bookingStart
+            bookingEnd
+            totalPrice
+            bookingCheckIn
+            bookingCheckOut
+            bookingPrice
+            bookingGuests
+            propertyId
+            memberId
+            createdAt
+            updatedAt
+            propertyData {
+                _id
+                propertyType
+                propertyTitle
+                propertyLocation
+                propertyAddress
+            }
+        }
+        metaCounter {
+            total
+        }
+    }
+}
+`

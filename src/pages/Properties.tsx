@@ -1,14 +1,136 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery } from '@apollo/client/react'
 import { Star, Heart, MapPin, SlidersHorizontal, X, Calendar } from 'lucide-react'
 import { format } from 'date-fns'
-import { properties, amenityLabels, type PropertyCategory } from '@/data/mockData'
+import { amenityLabels } from '@/data/mockData'
+import { GET_PROPERTIES } from '@/graphql/user/query'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
 import { clearAccessToken, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
 import type { DateRange } from 'react-day-picker'
+
+type PropertyCategory = 'villa' | 'hotel' | 'sanatorium'
+
+type ApiProperty = {
+  _id: string
+  propertyType: string
+  propertyLocation: string
+  propertyTitle: string
+  propertyPrice: number
+  propertyRank?: number
+  propertyComments: number
+  propertyImages: string[]
+  propertyDesc?: string | null
+}
+
+type DisplayProperty = {
+  id: string
+  title: string
+  location: string
+  price: number
+  rating: number
+  reviews: number
+  image: string
+  category: PropertyCategory
+  amenities: string[]
+}
+
+type GetPropertiesResponse = {
+  getProperties: {
+    list: ApiProperty[]
+  }
+}
+
+type GetPropertiesVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: Record<string, never>
+  }
+}
+
+const LIKED_PROPERTIES_KEY = 'roomi_liked_properties'
+
+const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
+
+function getBackendOrigin(): string {
+  try {
+    return new URL(GRAPHQL_URL).origin
+  } catch {
+    return 'http://localhost:3008'
+  }
+}
+
+function resolveImageUrl(imagePath?: string): string {
+  if (!imagePath) return '/assets/hero-villa.jpg'
+  if (/^https?:\/\//i.test(imagePath) || imagePath.startsWith('data:') || imagePath.startsWith('blob:')) {
+    return imagePath
+  }
+
+  const cleanPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`
+  return `${getBackendOrigin()}${cleanPath}`
+}
+
+function mapPropertyType(type: string): PropertyCategory {
+  const normalized = type.toUpperCase()
+  if (normalized === 'HOTEL') return 'hotel'
+  if (normalized === 'SANATORIUM') return 'sanatorium'
+  return 'villa'
+}
+
+function formatLocation(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ')
+}
+
+function parseAmenitiesFromDescription(description?: string | null): string[] {
+  if (!description) return []
+  const match = description.match(/(?:^|\n)Amenities:\s*([^\n]+)/i)
+  if (!match) return []
+
+  return match[1]
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((label) => {
+      const found = Object.entries(amenityLabels).find(([, value]) => value.toLowerCase() === label.toLowerCase())
+      return found?.[0] || label.toLowerCase().replace(/\s+/g, '-')
+    })
+}
+
+function mapApiProperty(item: ApiProperty): DisplayProperty {
+  return {
+    id: item._id,
+    title: item.propertyTitle,
+    location: formatLocation(item.propertyLocation),
+    price: item.propertyPrice,
+    rating: item.propertyRank || 0,
+    reviews: item.propertyComments || 0,
+    image: resolveImageUrl(item.propertyImages?.[0]),
+    category: mapPropertyType(item.propertyType),
+    amenities: parseAmenitiesFromDescription(item.propertyDesc),
+  }
+}
+
+function readLikedPropertyIds(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(LIKED_PROPERTIES_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 const categories: { label: string; value: PropertyCategory | 'all' }[] = [
   { label: 'All', value: 'all' },
@@ -33,10 +155,25 @@ export default function Properties() {
   const [showFilters, setShowFilters] = useState(false)
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'rating' | 'reviews'>('rating')
-  const [likedIds, setLikedIds] = useState<string[]>([])
+  const [likedIds, setLikedIds] = useState<string[]>(readLikedPropertyIds)
   const [hasAuthSession, setHasAuthSession] = useState(isAuthenticated())
 
   const authEventName = getAuthChangedEventName()
+
+  const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 200,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {},
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const allProperties = useMemo(() => (data?.getProperties?.list || []).map(mapApiProperty), [data])
 
   useEffect(() => {
     const syncAuthState = () => setHasAuthSession(isAuthenticated())
@@ -48,8 +185,13 @@ export default function Properties() {
     }
   }, [authEventName])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(LIKED_PROPERTIES_KEY, JSON.stringify(likedIds))
+  }, [likedIds])
+
   const filtered = useMemo(() => {
-    let result = properties.filter((p) => {
+    let result = allProperties.filter((p) => {
       if (category !== 'all' && p.category !== category) return false
       if (location && !p.location.toLowerCase().includes(location.toLowerCase())) return false
       if (p.price < priceRange[0] || p.price > priceRange[1]) return false
@@ -69,7 +211,7 @@ export default function Properties() {
     })
 
     return result
-  }, [category, location, priceRange, minRating, selectedAmenities, sortBy])
+  }, [allProperties, category, location, priceRange, minRating, selectedAmenities, sortBy])
 
   const toggleAmenity = (a: string) => {
     setSelectedAmenities((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])
@@ -261,6 +403,8 @@ export default function Properties() {
         )}
 
         {/* Results */}
+        {loading && <p className="text-sm text-muted-foreground mb-4">Loading properties...</p>}
+        {error && <p className="text-sm text-destructive mb-4">Failed to load properties: {error.message}</p>}
         <p className="text-sm text-muted-foreground mb-6">{filtered.length} properties found</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">

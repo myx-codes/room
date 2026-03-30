@@ -1,4 +1,5 @@
 const MEMBER_PROFILE_KEY = 'roomi_member_profile'
+const ACCESS_TOKEN_KEY = 'roomi_access_token'
 const AUTH_CHANGED_EVENT = 'roomi-auth-changed'
 
 export interface StoredMemberProfile {
@@ -25,15 +26,23 @@ export interface StoredMemberProfile {
 }
 
 export function getAccessToken(): string {
-  return ''
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem(ACCESS_TOKEN_KEY) || ''
 }
 
 export function setAccessToken(token: string) {
-  void token
+  if (typeof window === 'undefined') return
+  if (!token) {
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
+  } else {
+    localStorage.setItem(ACCESS_TOKEN_KEY, token)
+  }
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT))
 }
 
 export function clearAccessToken() {
   if (typeof window === 'undefined') return
+  localStorage.removeItem(ACCESS_TOKEN_KEY)
   localStorage.removeItem(MEMBER_PROFILE_KEY)
   window.dispatchEvent(new Event(AUTH_CHANGED_EVENT))
 }

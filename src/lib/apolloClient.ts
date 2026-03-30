@@ -3,7 +3,7 @@ import { CombinedGraphQLErrors } from '@apollo/client/errors'
 import { onError } from '@apollo/client/link/error'
 import { setContext } from '@apollo/client/link/context'
 import { Observable } from '@apollo/client/utilities'
-import { clearAccessToken } from '@/lib/auth'
+import { clearAccessToken, getAccessToken } from '@/lib/auth'
 
 const CSRF_STORAGE_KEY = 'csrfToken'
 
@@ -108,14 +108,20 @@ function readCsrfFromResponseHeaders(headers?: Headers): string {
 
 const csrfLink = setContext(async (_, { headers }) => {
   const csrfToken = (await bootstrapCsrfToken()) || getCsrfToken()
+  const accessToken = getAccessToken()
+  const nextHeaders: Record<string, string> = { ...(headers as Record<string, string> | undefined) }
+
+  if (accessToken) {
+    nextHeaders.authorization = `Bearer ${accessToken}`
+  }
 
   if (!csrfToken) {
-    return { headers }
+    return { headers: nextHeaders }
   }
 
   return {
     headers: {
-      ...headers,
+      ...nextHeaders,
       'x-csrf-token': csrfToken,
       'x-xsrf-token': csrfToken,
     },

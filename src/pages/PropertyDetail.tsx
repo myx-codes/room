@@ -1,6 +1,7 @@
-import { useMemo, useState, type ElementType, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type ElementType, type FormEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useMutation, useQuery } from '@apollo/client/react'
 import {
   Star,
   MapPin,
@@ -17,16 +18,15 @@ import {
   Trees,
   MessageSquare,
   Send,
+  CreditCard,
 } from 'lucide-react'
 import { Navbar } from '@/components/Navbar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { properties } from '@/data/mockData'
-import villaImg from '@/assets/category-villa.jpg'
-import hotelImg from '@/assets/category-hotel.jpg'
-import sanatoriumImg from '@/assets/category-sanatorium.jpg'
-import heroImg from '@/assets/hero-villa.jpg'
+import { CREATE_BOOKINGS } from '@/graphql/user/mutation'
+import { GET_PROPERTIES } from '@/graphql/user/query'
+import { isAuthenticated } from '@/lib/auth'
 
 type CommentItem = {
   id: string
@@ -38,6 +38,73 @@ type CommentItem = {
 }
 
 const COMMENTS_STORAGE_KEY = 'roomi_property_comments_v1'
+const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
+
+type PropertyCategory = 'villa' | 'hotel' | 'sanatorium'
+
+type ApiProperty = {
+  _id: string
+  propertyType: string
+  propertyLocation: string
+  propertyTitle: string
+  propertyPrice: number
+  propertyRank?: number
+  propertyComments: number
+  propertyImages: string[]
+  propertyDesc?: string | null
+}
+
+type DisplayProperty = {
+  id: string
+  title: string
+  location: string
+  price: number
+  rating: number
+  reviews: number
+  images: string[]
+  category: PropertyCategory
+  amenities: string[]
+  description: string
+}
+
+type GetPropertiesResponse = {
+  getProperties: {
+    list: ApiProperty[]
+  }
+}
+
+type GetPropertiesVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: Record<string, never>
+  }
+}
+
+type CreateBookingResponse = {
+  createBooking: {
+    _id: string
+  }
+}
+
+type CreateBookingVariables = {
+  input: {
+    propertyId: string
+    bookingStart: string
+    bookingEnd: string
+    bookingGuests: number
+    totalPrice: number
+  }
+}
+
+type SavedCard = {
+  id: string
+  brand: string
+  last4: string
+  expiry: string
+}
 
 const amenityIcons: Record<string, ElementType> = {
   wifi: Wifi,
@@ -49,6 +116,8 @@ const amenityIcons: Record<string, ElementType> = {
   ac: Wind,
   garden: Trees,
 }
+
+const CARD_STORAGE_KEY = 'roomi_saved_cards'
 
 const amenityLabels: Record<string, string> = {
   wifi: 'Wi-Fi',
@@ -73,32 +142,165 @@ const readStoredComments = (): CommentItem[] => {
   }
 }
 
-const getGalleryImages = (category: 'villa' | 'hotel' | 'sanatorium', fallback: string) => {
-  const byCategory = {
-    villa: [fallback, heroImg, villaImg, hotelImg, sanatoriumImg],
-    hotel: [fallback, hotelImg, heroImg, sanatoriumImg, villaImg],
-    sanatorium: [fallback, sanatoriumImg, heroImg, hotelImg, villaImg],
+const readSavedCards = (): SavedCard[] => {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(CARD_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function getBackendOrigin(): string {
+  try {
+    return new URL(GRAPHQL_URL).origin
+  } catch {
+    return 'http://localhost:3008'
+  }
+}
+
+function resolveImageUrl(imagePath?: string): string {
+  if (!imagePath) return '/assets/hero-villa.jpg'
+  if (/^https?:\/\//i.test(imagePath) || imagePath.startsWith('data:') || imagePath.startsWith('blob:')) {
+    return imagePath
   }
 
-  return byCategory[category]
+  const cleanPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`
+  return `${getBackendOrigin()}${cleanPath}`
+}
+
+function mapPropertyType(type: string): PropertyCategory {
+  const normalized = type.toUpperCase()
+  if (normalized === 'HOTEL') return 'hotel'
+  if (normalized === 'SANATORIUM') return 'sanatorium'
+  return 'villa'
+}
+
+function formatLocation(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ')
+}
+
+function formatDate(value: string): string {
+  if (!value) return 'Not selected'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Invalid date'
+  return date.toLocaleDateString()
+}
+
+function parseDescriptionAndAmenities(description?: string | null): { description: string; amenities: string[] } {
+  if (!description) return { description: '', amenities: [] }
+
+  const descriptionWithoutMeta = description.replace(/(?:\n|^)ROOMI_SANATORIUM_META:[^\n]+/g, '').trim()
+  const match = descriptionWithoutMeta.match(/(?:^|\n)Amenities:\s*([^\n]+)/i)
+  if (!match) return { description: descriptionWithoutMeta.trim(), amenities: [] }
+
+  const cleanDescription = descriptionWithoutMeta.replace(/(?:\n|^)Amenities:\s*[^\n]+/i, '').trim()
+  const amenities = match[1]
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((label) => {
+      const found = Object.entries(amenityLabels).find(([, value]) => value.toLowerCase() === label.toLowerCase())
+      return found?.[0] || label.toLowerCase().replace(/\s+/g, '-')
+    })
+
+  return { description: cleanDescription, amenities }
+}
+
+function mapApiProperty(item: ApiProperty): DisplayProperty {
+  const parsed = parseDescriptionAndAmenities(item.propertyDesc)
+
+  return {
+    id: item._id,
+    title: item.propertyTitle,
+    location: formatLocation(item.propertyLocation),
+    price: item.propertyPrice,
+    rating: item.propertyRank || 0,
+    reviews: item.propertyComments || 0,
+    images: (item.propertyImages || []).map((image) => resolveImageUrl(image)),
+    category: mapPropertyType(item.propertyType),
+    amenities: parsed.amenities,
+    description: parsed.description,
+  }
 }
 
 export default function PropertyDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
 
-  const property = properties.find((p) => p.id === id)
+  const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 200,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {},
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const property = useMemo(
+    () => (data?.getProperties?.list || []).map(mapApiProperty).find((p) => p.id === id),
+    [data, id],
+  )
   const [currentImage, setCurrentImage] = useState(0)
   const [showGallery, setShowGallery] = useState(false)
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [rating, setRating] = useState(5)
   const [comments, setComments] = useState<CommentItem[]>(readStoredComments)
+  const [checkInDate, setCheckInDate] = useState('')
+  const [checkOutDate, setCheckOutDate] = useState('')
+  const [guestCount, setGuestCount] = useState(1)
+  const [bookingError, setBookingError] = useState('')
+  const [bookingSuccess, setBookingSuccess] = useState('')
+  const [showBookingReview, setShowBookingReview] = useState(false)
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([])
+  const [selectedCardId, setSelectedCardId] = useState('')
+
+  const [createBooking, { loading: bookingLoading }] = useMutation<CreateBookingResponse, CreateBookingVariables>(CREATE_BOOKINGS)
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowGallery(false)
+        setShowBookingReview(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const propertyComments = useMemo(
     () => comments.filter((item) => item.propertyId === id),
     [comments, id],
   )
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-lg text-muted-foreground">Loading property...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-lg text-destructive">Failed to load property: {error.message}</p>
+      </div>
+    )
+  }
 
   if (!property) {
     return (
@@ -108,7 +310,7 @@ export default function PropertyDetail() {
     )
   }
 
-  const images = getGalleryImages(property.category, property.image)
+  const images = property.images.length > 0 ? property.images : ['/assets/hero-villa.jpg']
 
   const nextImage = () => setCurrentImage((prev) => (prev + 1) % images.length)
   const prevImage = () => setCurrentImage((prev) => (prev - 1 + images.length) % images.length)
@@ -134,6 +336,100 @@ export default function PropertyDetail() {
     localStorage.setItem(COMMENTS_STORAGE_KEY, JSON.stringify(next))
     setMessage('')
     setRating(5)
+  }
+
+  const getBookingSummary = () => {
+    if (!checkInDate || !checkOutDate) return null
+    const start = new Date(checkInDate)
+    const end = new Date(checkOutDate)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null
+
+    const nights = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+    const totalPrice = Math.max(1, Math.round(nights * property.price))
+    return { nights, totalPrice }
+  }
+
+  const handleReviewBooking = () => {
+    setBookingError('')
+    setBookingSuccess('')
+
+    const cards = readSavedCards()
+    setSavedCards(cards)
+
+    if (cards.length === 1) {
+      setSelectedCardId(cards[0].id)
+    } else if (!cards.some((card) => card.id === selectedCardId)) {
+      setSelectedCardId('')
+    }
+
+    // Always open review first, then show validation feedback inside the modal.
+    setShowBookingReview(true)
+
+    if (!isAuthenticated()) {
+      setBookingError('Please sign in to create a booking.')
+      return
+    }
+
+    if (!checkInDate || !checkOutDate) {
+      setBookingError('Please select check-in and check-out dates.')
+      return
+    }
+
+    if (!getBookingSummary()) {
+      setBookingError('Check-out date must be after check-in date.')
+      return
+    }
+  }
+
+  const handleCreateBooking = async () => {
+    setBookingError('')
+    setBookingSuccess('')
+
+    if (!isAuthenticated()) {
+      setBookingError('Please sign in to create a booking.')
+      return
+    }
+
+    const summary = getBookingSummary()
+    if (!summary) {
+      setBookingError('Check-out date must be after check-in date.')
+      return
+    }
+
+    if (savedCards.length === 0) {
+      setBookingError('No saved card found. Please add a card in My Payments first.')
+      return
+    }
+
+    if (!selectedCardId) {
+      setBookingError('Please select a card to continue.')
+      return
+    }
+
+    try {
+      const { data: bookingData } = await createBooking({
+        variables: {
+          input: {
+            propertyId: property.id,
+            bookingStart: checkInDate,
+            bookingEnd: checkOutDate,
+            bookingGuests: guestCount,
+            totalPrice: summary.totalPrice,
+          },
+        },
+      })
+
+      if (!bookingData?.createBooking?._id) {
+        setBookingError('Booking was not created. Please try again.')
+        return
+      }
+
+      setBookingSuccess('Booking created successfully! You can view it in My Bookings.')
+      setShowBookingReview(false)
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Failed to create booking.'
+      setBookingError(messageText)
+    }
   }
 
   return (
@@ -207,13 +503,13 @@ export default function PropertyDetail() {
 
             <div className="mb-10">
               <h2 className="font-display text-xl font-semibold text-foreground mb-3">Description</h2>
-              <p className="text-sm leading-relaxed text-muted-foreground">{property.description}</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">{property.description || 'No description yet.'}</p>
             </div>
 
             <div className="mb-10">
               <h2 className="font-display text-xl font-semibold text-foreground mb-4">Amenities</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {property.amenities.map((amenity) => {
+                {(property.amenities.length > 0 ? property.amenities : ['wifi']).map((amenity) => {
                   const Icon = amenityIcons[amenity] || Wifi
                   return (
                     <div key={amenity} className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border">
@@ -321,6 +617,8 @@ export default function PropertyDetail() {
                     </label>
                     <input
                       type="date"
+                      value={checkInDate}
+                      onChange={(e) => setCheckInDate(e.target.value)}
                       className="text-sm w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-foreground outline-none focus:ring-2 focus:ring-primary/30"
                     />
                   </div>
@@ -330,6 +628,8 @@ export default function PropertyDetail() {
                     </label>
                     <input
                       type="date"
+                      value={checkOutDate}
+                      onChange={(e) => setCheckOutDate(e.target.value)}
                       className="text-sm w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-foreground outline-none focus:ring-2 focus:ring-primary/30"
                     />
                   </div>
@@ -338,7 +638,11 @@ export default function PropertyDetail() {
                   <label className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">
                     Guests
                   </label>
-                  <select className="text-sm w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-foreground outline-none focus:ring-2 focus:ring-primary/30">
+                  <select
+                    value={guestCount}
+                    onChange={(e) => setGuestCount(Number(e.target.value))}
+                    className="text-sm w-full px-3 py-2.5 rounded-xl bg-muted border border-border text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                  >
                     {[1, 2, 3, 4, 5, 6].map((n) => (
                       <option key={n} value={n}>{`${n} guest${n > 1 ? 's' : ''}`}</option>
                     ))}
@@ -346,7 +650,11 @@ export default function PropertyDetail() {
                 </div>
               </div>
 
-              <Button className="w-full h-12 text-base">Book Now</Button>
+              <Button type="button" onClick={handleReviewBooking} className="w-full h-12 text-base">
+                Review Booking
+              </Button>
+              {bookingError && <p className="text-sm text-destructive mt-3">{bookingError}</p>}
+              {bookingSuccess && <p className="text-sm text-green-600 mt-3">{bookingSuccess}</p>}
               <Link
                 to="/properties"
                 className="block text-center text-sm text-muted-foreground hover:text-foreground mt-3 gentle-animation"
@@ -404,6 +712,90 @@ export default function PropertyDetail() {
                 />
               ))}
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showBookingReview && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-black/60 flex items-center justify-center p-4"
+            onClick={() => setShowBookingReview(false)}
+          >
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              className="w-full max-w-lg bg-card border border-border rounded-2xl p-5"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display text-xl font-semibold text-foreground">Review Booking</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowBookingReview(false)}
+                  className="p-1.5 rounded-lg hover:bg-muted gentle-animation"
+                >
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm mb-3">
+                <p className="font-medium text-foreground">Booking Summary</p>
+                <p className="text-muted-foreground mt-1">{property.title}</p>
+                <p className="text-muted-foreground">{formatDate(checkInDate)} → {formatDate(checkOutDate)} · {guestCount} guests</p>
+                {getBookingSummary() ? (
+                  <p className="text-foreground font-medium mt-1">Total: ${getBookingSummary()?.totalPrice}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">Select valid dates to calculate total.</p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm mb-4">
+                <p className="font-medium text-foreground mb-2">Select Card</p>
+                {savedCards.length === 0 ? (
+                  <p className="text-destructive">No saved cards. Go to My Payments and add a card.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {savedCards.map((card) => (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => setSelectedCardId(card.id)}
+                        className={`w-full text-left p-2.5 rounded-lg border gentle-animation flex items-center justify-between ${
+                          selectedCardId === card.id
+                            ? 'border-primary bg-primary/10'
+                            : 'border-border bg-background hover:bg-muted'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 text-foreground">
+                          <CreditCard className="w-4 h-4" />
+                          {card.brand} •••• {card.last4}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{card.expiry}</span>
+                      </button>
+                    ))}
+                    {savedCards.length === 1 && (
+                      <p className="text-xs text-muted-foreground">Your only saved card is selected automatically.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {bookingError && <p className="text-sm text-destructive mb-3">{bookingError}</p>}
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" onClick={() => setShowBookingReview(false)} className="h-11">
+                  Back
+                </Button>
+                <Button type="button" onClick={handleCreateBooking} disabled={bookingLoading} className="h-11">
+                  {bookingLoading ? 'Booking...' : 'Confirm Booking'}
+                </Button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -74,3 +74,28 @@ query GetMyBookings($input: BookingsInquiry!) {
     }
 }
 `
+
+export const GET_COMMENTS = gql`
+  query GetComments($input: CommentsInquiry!) {
+    getComments(input: $input) {
+      list {
+        _id
+        commentStatus
+        commentGroup
+        commentContent
+        commentRefId
+        createdAt
+        updatedAt
+        memberData {
+          _id
+          memberNick
+          memberFullName
+          memberImage
+        }
+      }
+      metaCounter {
+        total
+      }
+    }
+  }
+`

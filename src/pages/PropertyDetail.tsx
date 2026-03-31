@@ -25,19 +25,18 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { CREATE_BOOKINGS, CREATE_COMMENT } from '@/graphql/user/mutation'
-import { GET_PROPERTIES } from '@/graphql/user/query'
+import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
 import { isAuthenticated } from '@/lib/auth'
+import { CommentGroup } from '@/lib/client/enums/comment.enum'
 
 type CommentItem = {
   id: string
-  propertyId: string
   name: string
   message: string
   rating: number
   createdAt: string
 }
 
-const COMMENTS_STORAGE_KEY = 'roomi_property_comments_v1'
 const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
 
 type PropertyCategory = 'villa' | 'hotel' | 'sanatorium'
@@ -103,7 +102,7 @@ type CreateCommentResponse = {
   createComment: {
     _id: string
     commentStatus: string
-    commentGroup: 'MEMBER' | 'ARTICLE' | 'PROPERTY'
+    commentGroup: CommentGroup
     commentContent: string
     commentRefId: string
     memberId: string
@@ -139,7 +138,41 @@ type CreateCommentVariables = {
   input: {
     commentContent: string
     commentRefId: string
-    commentGroup: 'MEMBER' | 'ARTICLE' | 'PROPERTY'
+    commentGroup: CommentGroup
+  }
+}
+
+type BackendComment = {
+  _id: string
+  commentStatus: string
+  commentGroup: CommentGroup
+  commentContent: string
+  commentRefId: string
+  createdAt: string
+  updatedAt: string
+  memberData?: {
+    _id: string
+    memberNick: string
+    memberFullName: string | null
+    memberImage?: string
+  } | null
+}
+
+type GetCommentsResponse = {
+  getComments: {
+    list: BackendComment[]
+  }
+}
+
+type GetCommentsVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: {
+      commentRefId: string
+    }
   }
 }
 
@@ -172,18 +205,6 @@ const amenityLabels: Record<string, string> = {
   gym: 'Gym',
   ac: 'Air Conditioning',
   garden: 'Garden',
-}
-
-const readStoredComments = (): CommentItem[] => {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(COMMENTS_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
 }
 
 const readSavedCards = (): SavedCard[] => {
@@ -236,6 +257,17 @@ function formatDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Invalid date'
   return date.toLocaleDateString()
+}
+
+function parseRoomiRatingFromCommentContent(content: string): { rating: number; message: string } {
+  if (!content) return { rating: 0, message: '' }
+  const match = content.match(/^rating:(\d{1,2})\s*\r?\n/)
+  if (!match) return { rating: 0, message: content }
+
+  const parsedRating = Number(match[1])
+  const rating = Number.isFinite(parsedRating) ? Math.min(5, Math.max(1, parsedRating)) : 0
+  const message = content.slice(match[0].length).trim()
+  return { rating, message }
 }
 
 function parseDescriptionAndAmenities(description?: string | null): { description: string; amenities: string[] } {
@@ -296,12 +328,31 @@ export default function PropertyDetail() {
     () => (data?.getProperties?.list || []).map(mapApiProperty).find((p) => p.id === id),
     [data, id],
   )
+
+  const {
+    data: commentsData,
+    loading: commentsLoading,
+    error: commentsError,
+    refetch: refetchComments,
+  } = useQuery<GetCommentsResponse, GetCommentsVariables>(GET_COMMENTS, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 50,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {
+          commentRefId: id || '',
+        },
+      },
+    },
+    skip: !id,
+    fetchPolicy: 'network-only',
+  })
   const [currentImage, setCurrentImage] = useState(0)
   const [showGallery, setShowGallery] = useState(false)
-  const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [rating, setRating] = useState(5)
-  const [comments, setComments] = useState<CommentItem[]>(readStoredComments)
   const [checkInDate, setCheckInDate] = useState('')
   const [checkOutDate, setCheckOutDate] = useState('')
   const [guestCount, setGuestCount] = useState(1)
@@ -327,10 +378,32 @@ export default function PropertyDetail() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const propertyComments = useMemo(
-    () => comments.filter((item) => item.propertyId === id),
-    [comments, id],
-  )
+  const propertyComments = useMemo(() => {
+    const list = commentsData?.getComments?.list ?? []
+    return list
+      .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === id)
+      .map((c) => {
+        const parsed = parseRoomiRatingFromCommentContent(c.commentContent)
+        return {
+          id: c._id,
+          name: c.memberData?.memberFullName || c.memberData?.memberNick || 'Guest',
+          message: parsed.message,
+          rating: parsed.rating,
+          createdAt: c.createdAt,
+        }
+      })
+  }, [commentsData, id])
+
+  const { displayedRating, displayedReviews } = useMemo(() => {
+    const validRatings = propertyComments.map((c) => c.rating).filter((r) => r > 0)
+    const count = validRatings.length
+    if (!count) {
+      return { displayedRating: property?.rating ?? 0, displayedReviews: property?.reviews ?? 0 }
+    }
+
+    const avg = validRatings.reduce((sum, r) => sum + r, 0) / count
+    return { displayedRating: avg, displayedReviews: count }
+  }, [property, propertyComments])
 
   if (loading) {
     return (
@@ -366,19 +439,25 @@ export default function PropertyDetail() {
 
     setCommentError('')
 
-    const cleanName = name.trim()
     const cleanMessage = message.trim()
-    if (!cleanName || !cleanMessage) return
+    if (!cleanMessage) return
+
+    if (!isAuthenticated()) {
+      setCommentError('Please sign in to post a comment.')
+      return
+    }
 
     try {
       const { data: commentData } = await createComment({
         variables: {
           input: {
-            commentContent: cleanMessage,
+            // Backend `CommentInput` has no separate rating field.
+            // We store rating in the text so we can render stars later.
+            commentContent: `rating:${rating}\n${cleanMessage}`,
             commentRefId: property.id,
             // Backend `CommentGroup` enum: MEMBER | ARTICLE | PROPERTY.
             // This page creates comments for a property, so we use `PROPERTY`.
-            commentGroup: 'PROPERTY',
+            commentGroup: CommentGroup.PROPERTY,
           },
         },
       })
@@ -386,25 +465,11 @@ export default function PropertyDetail() {
       const created = commentData?.createComment
       if (!created?._id) throw new Error('Comment was not created. Please try again.')
 
-      const newItem: CommentItem = {
-        id: created._id,
-        propertyId: created.commentRefId,
-        name: created.memberData?.memberFullName || created.memberData?.memberNick || cleanName,
-        message: created.commentContent,
-        // Backend doesn't accept star rating in input (uses enum `CommentGroup`),
-        // so we keep the UI-selected rating for immediate rendering.
-        rating,
-        createdAt: created.createdAt,
-      }
-
-      setComments((prev) => {
-        const next = [newItem, ...prev]
-        localStorage.setItem(COMMENTS_STORAGE_KEY, JSON.stringify(next))
-        return next
-      })
-
       setMessage('')
       setRating(5)
+
+      // Refresh DB comments after successful create.
+      await refetchComments()
     } catch (error) {
       const messageText = error instanceof Error ? error.message : 'Failed to post comment.'
       setCommentError(messageText)
@@ -561,8 +626,10 @@ export default function PropertyDetail() {
               </span>
               <div className="flex items-center gap-1">
                 <Star className="w-4 h-4 fill-gold text-gold" />
-                <span className="text-sm font-semibold text-foreground">{property.rating}</span>
-                <span className="text-xs text-muted-foreground">({property.reviews} reviews)</span>
+                <span className="text-sm font-semibold text-foreground">
+                  {typeof displayedRating === 'number' ? displayedRating.toFixed(1) : property.rating}
+                </span>
+                <span className="text-xs text-muted-foreground">({displayedReviews} reviews)</span>
               </div>
             </div>
 
@@ -610,27 +677,33 @@ export default function PropertyDetail() {
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <MessageSquare className="w-5 h-5 text-gold" />
-                <h2 className="font-display text-xl font-semibold text-foreground">Guest Comments</h2>
+                  <h2 className="font-display text-xl font-semibold text-foreground">Comments</h2>
               </div>
 
               <form onSubmit={submitComment} className="bg-card border border-border rounded-2xl p-5 mb-6 space-y-4">
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <Input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Your name"
-                    required
-                  />
-                  <select
-                    value={rating}
-                    onChange={(e) => setRating(Number(e.target.value))}
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    {[5, 4, 3, 2, 1].map((r) => (
-                      <option key={r} value={r}>{`${r} star${r > 1 ? 's' : ''}`}</option>
-                    ))}
-                  </select>
-                </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                      Rating
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 3, 4, 5].map((value) => {
+                        const isActive = value <= rating
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setRating(value)}
+                            className="p-1 rounded-lg hover:bg-muted/50 transition-colors"
+                            aria-label={`Set rating ${value}`}
+                          >
+                            <Star
+                              className={`w-5 h-5 ${isActive ? 'text-gold fill-gold' : 'text-muted-foreground'}`}
+                            />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
 
                 <Textarea
                   value={message}
@@ -652,7 +725,19 @@ export default function PropertyDetail() {
               )}
 
               <div className="space-y-4">
-                {propertyComments.length === 0 && (
+                {commentsLoading && (
+                  <div className="bg-card border border-border rounded-2xl p-5 text-sm text-muted-foreground">
+                    Loading comments...
+                  </div>
+                )}
+
+                {commentsError && (
+                  <div className="bg-card border border-border rounded-2xl p-5 text-sm text-destructive">
+                    Failed to load comments: {commentsError.message}
+                  </div>
+                )}
+
+                {!commentsLoading && !commentsError && propertyComments.length === 0 && (
                   <div className="bg-card border border-border rounded-2xl p-5 text-sm text-muted-foreground">
                     No comments yet. Be the first to write one.
                   </div>

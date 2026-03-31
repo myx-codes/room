@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@apollo/client/react'
 import { Star, MapPin, Pencil, Plus, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CREATE_PROPERTY } from '@/graphql/user/mutation'
-import { GET_PROPERTIES } from '@/graphql/user/query'
+import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
 import { getMemberProfile } from '@/lib/auth'
 import { amenityLabels } from '@/data/mockData'
+import { apolloClient } from '@/lib/apolloClient'
+import { CommentGroup } from '@/lib/client/enums/comment.enum'
 
 type PropertyType = 'VILLA' | 'HOTEL' | 'SANATORIUM'
 
@@ -138,6 +140,40 @@ function toLocalPropertyCard(item: CreatedProperty): LocalPropertyCard {
     reviews: item.propertyComments || 0,
     image: resolveImageUrl(item.propertyImages?.[0]),
     category: mapPropertyTypeToCategory(item.propertyType),
+  }
+}
+
+function parseRoomiRatingFromCommentContent(content: string): number | null {
+  const match = content?.match(/^ROOMi_RATING:(\d{1,2})\s*\r?\n/)
+  if (!match) return null
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed)) return null
+  return Math.min(5, Math.max(1, parsed))
+}
+
+type BackendComment = {
+  _id: string
+  commentGroup: CommentGroup
+  commentContent: string
+  commentRefId: string
+  createdAt: string
+}
+
+type GetCommentsResponse = {
+  getComments: {
+    list: BackendComment[]
+  }
+}
+
+type GetCommentsVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: {
+      commentRefId: string
+    }
   }
 }
 
@@ -308,6 +344,76 @@ export default function AgentProperties() {
     () => (propertiesData?.getProperties?.list || []).map(toLocalPropertyCard),
     [propertiesData],
   )
+
+  const [ratingsById, setRatingsById] = useState<Record<string, { rating: number; reviews: number }>>({})
+  const fetchedRatingsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (myProperties.length === 0) return
+
+    const idsToFetch = myProperties
+      .map((p) => p.id)
+      .filter((id) => !fetchedRatingsRef.current.has(id))
+
+    if (idsToFetch.length === 0) return
+    idsToFetch.forEach((id) => fetchedRatingsRef.current.add(id))
+
+    let cancelled = false
+
+    const fetchRatings = async () => {
+      const CONCURRENCY = 4
+      const queue = [...idsToFetch]
+
+      const worker = async () => {
+        while (queue.length > 0 && !cancelled) {
+          const propertyId = queue.shift()
+          if (!propertyId) break
+
+          try {
+            const { data: commentsData } = await apolloClient.query<GetCommentsResponse, GetCommentsVariables>({
+              query: GET_COMMENTS,
+              variables: {
+                input: {
+                  page: 1,
+                  limit: 50,
+                  sort: 'createdAt',
+                  direction: 'DESC',
+                  search: { commentRefId: propertyId },
+                },
+              },
+              fetchPolicy: 'network-only',
+            })
+
+            const list = commentsData?.getComments?.list ?? []
+            const ratings = list
+              .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === propertyId)
+              .map((c) => parseRoomiRatingFromCommentContent(c.commentContent))
+              .filter((r): r is number => r !== null)
+
+            if (ratings.length === 0) continue
+
+            const avg = ratings.reduce((sum, r) => sum + r, 0) / ratings.length
+            const ratingAvg = Math.round(avg * 10) / 10
+
+            setRatingsById((prev) => ({
+              ...prev,
+              [propertyId]: { rating: ratingAvg, reviews: ratings.length },
+            }))
+          } catch {
+            // ignore per-property failures
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: CONCURRENCY }, worker))
+    }
+
+    fetchRatings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [myProperties])
   const mainPreviewImage = previewUrls[activePreviewIndex] || previewUrls[0] || ''
   const sidePreviewImages = previewUrls
     .map((image, index) => ({ image, index }))
@@ -833,8 +939,8 @@ export default function AgentProperties() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
                   <Star className="w-4 h-4 text-gold fill-gold" />
-                  <span className="text-sm font-medium text-foreground">{p.rating}</span>
-                  <span className="text-xs text-muted-foreground">({p.reviews})</span>
+                    <span className="text-sm font-medium text-foreground">{ratingsById[p.id]?.rating ?? p.rating}</span>
+                    <span className="text-xs text-muted-foreground">({ratingsById[p.id]?.reviews ?? p.reviews})</span>
                 </div>
                 <span className="font-semibold text-foreground">${p.price}/night</span>
               </div>

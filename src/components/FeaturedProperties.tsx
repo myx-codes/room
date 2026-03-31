@@ -1,9 +1,11 @@
 import { motion, type Variants } from 'framer-motion'
 import { Star, Heart, MapPin, ArrowRight, ShieldCheck, Volume2, VolumeX, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@apollo/client/react'
 import { Link } from 'react-router-dom'
-import { GET_PROPERTIES } from '@/graphql/user/query'
+import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
+import { apolloClient } from '@/lib/apolloClient'
+import { CommentGroup } from '@/lib/client/enums/comment.enum'
 
 const categories = [
   { title: "Exclusive Villas", type: "villa", sub: "Private Retreats", color: "text-amber-600", bg: "bg-amber-600" },
@@ -154,6 +156,40 @@ function mapToFeaturedProperty(item: GetPropertiesResponse['getProperties']['lis
   }
 }
 
+function parseRoomiRatingFromCommentContent(content: string): number | null {
+  const match = content?.match(/^ROOMi_RATING:(\d{1,2})\s*\r?\n/)
+  if (!match) return null
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed)) return null
+  return Math.min(5, Math.max(1, parsed))
+}
+
+type BackendComment = {
+  _id: string
+  commentGroup: CommentGroup
+  commentContent: string
+  commentRefId: string
+  createdAt: string
+}
+
+type GetCommentsResponse = {
+  getComments: {
+    list: BackendComment[]
+  }
+}
+
+type GetCommentsVariables = {
+  input: {
+    page: number
+    limit: number
+    sort?: string
+    direction?: 'ASC' | 'DESC'
+    search: {
+      commentRefId: string
+    }
+  }
+}
+
 // Reusable animation variant for cascading elements
 const cascadeVariants: Variants = {
   hidden: { opacity: 0, y: 30 },
@@ -180,6 +216,70 @@ export function FeaturedProperties() {
 
   const allProperties = (data?.getProperties?.list || []).map(mapToFeaturedProperty)
 
+  const [ratingsById, setRatingsById] = useState<Record<string, { rating: number; reviews: number }>>({})
+  const fetchedRatingsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (allProperties.length === 0) return
+
+    const ids = categories
+      .flatMap((cat) => allProperties.filter((p) => p.category === cat.type).slice(0, 4).map((p) => p.id))
+      .filter(Boolean)
+
+    const idsToFetch = ids.filter((id) => !fetchedRatingsRef.current.has(id))
+    if (idsToFetch.length === 0) return
+
+    idsToFetch.forEach((id) => fetchedRatingsRef.current.add(id))
+
+    let cancelled = false
+
+    Promise.all(
+      idsToFetch.map(async (propertyId) => {
+        try {
+          const { data: commentsData } = await apolloClient.query<GetCommentsResponse, GetCommentsVariables>({
+            query: GET_COMMENTS,
+            variables: {
+              input: {
+                page: 1,
+                limit: 50,
+                sort: 'createdAt',
+                direction: 'DESC',
+                search: {
+                  commentRefId: propertyId,
+                },
+              },
+            },
+            fetchPolicy: 'network-only',
+          })
+
+          if (cancelled) return
+
+          const list = commentsData?.getComments?.list ?? []
+          const ratings = list
+            .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === propertyId)
+            .map((c) => parseRoomiRatingFromCommentContent(c.commentContent))
+            .filter((r): r is number => r !== null)
+
+          if (ratings.length === 0) return
+
+          const avg = ratings.reduce((sum, r) => sum + r, 0) / ratings.length
+          const ratingAvg = Math.round(avg * 10) / 10
+
+          setRatingsById((prev) => ({
+            ...prev,
+            [propertyId]: { rating: ratingAvg, reviews: ratings.length },
+          }))
+        } catch {
+          // Ignore per-property failures
+        }
+      }),
+    )
+
+    return () => {
+      cancelled = true
+    }
+  }, [allProperties])
+
   return (
     <section id="featured" className="py-24 px-6 bg-[#fcfcfd] overflow-hidden">
       <div className="max-w-7xl mx-auto space-y-40">
@@ -189,7 +289,12 @@ export function FeaturedProperties() {
         {categories.map((cat) => {
           const filteredProps = allProperties
             .filter((p) => p.category === cat.type)
-            .slice(0, 4);
+            .slice(0, 4)
+            .map((p) => ({
+              ...p,
+              rating: ratingsById[p.id]?.rating ?? p.rating,
+              reviews: ratingsById[p.id]?.reviews ?? p.reviews,
+            }))
 
           if (filteredProps.length === 0) return null;
 

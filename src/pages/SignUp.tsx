@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SIGN_UP } from '@/graphql/user/mutation'
+import { MemberType } from '@/lib/client/enums/member.enum'
 
 type SignUpResponse = {
   signup: {
@@ -18,7 +19,7 @@ type SignUpResponse = {
 
 type SignUpVariables = {
   input: {
-    memberType: 'USER' | 'AGENT'
+    memberType?: MemberType
     memberPhone: string
     memberNick: string
     memberPassword: string
@@ -31,7 +32,7 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false)
   const [fullName, setFullName] = useState('')
   const [memberNick, setMemberNick] = useState('')
-  const [memberType, setMemberType] = useState<'USER' | 'AGENT'>('USER')
+  const [memberType, setMemberType] = useState<MemberType>(MemberType.USER)
   const [phoneNumber, setPhoneNumber] = useState('')
   const [password, setPassword] = useState('')
   const [agreedToTerms, setAgreedToTerms] = useState(false)
@@ -156,7 +157,7 @@ export default function SignUp() {
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setMemberType('USER')}
+                  onClick={() => setMemberType(MemberType.USER)}
                   className={`rounded-xl border px-4 py-3 text-left gentle-animation ${
                     memberType === 'USER'
                       ? 'border-gold bg-gold/10 shadow-sm'
@@ -174,7 +175,7 @@ export default function SignUp() {
 
                 <button
                   type="button"
-                  onClick={() => setMemberType('AGENT')}
+                  onClick={() => setMemberType(MemberType.AGENT)}
                   className={`rounded-xl border px-4 py-3 text-left gentle-animation ${
                     memberType === 'AGENT'
                       ? 'border-gold bg-gold/10 shadow-sm'

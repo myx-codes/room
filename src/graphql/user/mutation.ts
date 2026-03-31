@@ -60,6 +60,45 @@ mutation Signup($input: MemberInput!) {
 }
 `;
 
+export const CREATE_COMMENT = gql `
+mutation CreateComment($input: CommentInput!) {
+    createComment(input: $input) {
+        _id
+        commentStatus
+        commentGroup
+        commentContent
+        commentRefId
+        memberId
+        createdAt
+        updatedAt
+        memberData {
+            _id
+            memberType
+            memberStatus
+            memberAuthType
+            memberPhone
+            memberNick
+            memberFullName
+            memberImage
+            memberProperties
+            memberArticles
+            memberPoints
+            memberLikes
+            memberViews
+            memberComments
+            memberRank
+            memberWarnings
+            memberBlocks
+            deletedAt
+            createdAt
+            updatedAt
+            accessToken
+        }
+    }
+}
+`
+;
+
 export const UPDATE_MEMBER = gql `
   mutation UpdateMember($input: MemberUpdate!) {
     updateMember(input: $input) {

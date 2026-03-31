@@ -24,7 +24,7 @@ import { Navbar } from '@/components/Navbar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { CREATE_BOOKINGS } from '@/graphql/user/mutation'
+import { CREATE_BOOKINGS, CREATE_COMMENT } from '@/graphql/user/mutation'
 import { GET_PROPERTIES } from '@/graphql/user/query'
 import { isAuthenticated } from '@/lib/auth'
 
@@ -96,6 +96,50 @@ type CreateBookingVariables = {
     bookingEnd: string
     bookingGuests: number
     totalPrice: number
+  }
+}
+
+type CreateCommentResponse = {
+  createComment: {
+    _id: string
+    commentStatus: string
+    commentGroup: 'MEMBER' | 'ARTICLE' | 'PROPERTY'
+    commentContent: string
+    commentRefId: string
+    memberId: string
+    createdAt: string
+    updatedAt: string
+    memberData?: {
+      _id: string
+      memberType: string
+      memberStatus: string
+      memberAuthType: string
+      memberPhone: string
+      memberNick: string
+      memberFullName: string | null
+      memberImage?: string
+      memberProperties: number
+      memberArticles: number
+      memberPoints: number
+      memberLikes: number
+      memberViews: number
+      memberComments: number
+      memberRank?: number
+      memberWarnings: number
+      memberBlocks: number
+      deletedAt: string | null
+      createdAt: string
+      updatedAt: string
+      accessToken?: string
+    } | null
+  }
+}
+
+type CreateCommentVariables = {
+  input: {
+    commentContent: string
+    commentRefId: string
+    commentGroup: 'MEMBER' | 'ARTICLE' | 'PROPERTY'
   }
 }
 
@@ -266,8 +310,10 @@ export default function PropertyDetail() {
   const [showBookingReview, setShowBookingReview] = useState(false)
   const [savedCards, setSavedCards] = useState<SavedCard[]>([])
   const [selectedCardId, setSelectedCardId] = useState('')
+  const [commentError, setCommentError] = useState('')
 
   const [createBooking, { loading: bookingLoading }] = useMutation<CreateBookingResponse, CreateBookingVariables>(CREATE_BOOKINGS)
+  const [createComment, { loading: commentLoading }] = useMutation<CreateCommentResponse, CreateCommentVariables>(CREATE_COMMENT)
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -315,27 +361,54 @@ export default function PropertyDetail() {
   const nextImage = () => setCurrentImage((prev) => (prev + 1) % images.length)
   const prevImage = () => setCurrentImage((prev) => (prev - 1 + images.length) % images.length)
 
-  const submitComment = (e: FormEvent) => {
+  const submitComment = async (e: FormEvent) => {
     e.preventDefault()
+
+    setCommentError('')
 
     const cleanName = name.trim()
     const cleanMessage = message.trim()
     if (!cleanName || !cleanMessage) return
 
-    const newItem: CommentItem = {
-      id: crypto.randomUUID(),
-      propertyId: property.id,
-      name: cleanName,
-      message: cleanMessage,
-      rating,
-      createdAt: new Date().toISOString(),
-    }
+    try {
+      const { data: commentData } = await createComment({
+        variables: {
+          input: {
+            commentContent: cleanMessage,
+            commentRefId: property.id,
+            // Backend `CommentGroup` enum: MEMBER | ARTICLE | PROPERTY.
+            // This page creates comments for a property, so we use `PROPERTY`.
+            commentGroup: 'PROPERTY',
+          },
+        },
+      })
 
-    const next = [newItem, ...comments]
-    setComments(next)
-    localStorage.setItem(COMMENTS_STORAGE_KEY, JSON.stringify(next))
-    setMessage('')
-    setRating(5)
+      const created = commentData?.createComment
+      if (!created?._id) throw new Error('Comment was not created. Please try again.')
+
+      const newItem: CommentItem = {
+        id: created._id,
+        propertyId: created.commentRefId,
+        name: created.memberData?.memberFullName || created.memberData?.memberNick || cleanName,
+        message: created.commentContent,
+        // Backend doesn't accept star rating in input (uses enum `CommentGroup`),
+        // so we keep the UI-selected rating for immediate rendering.
+        rating,
+        createdAt: created.createdAt,
+      }
+
+      setComments((prev) => {
+        const next = [newItem, ...prev]
+        localStorage.setItem(COMMENTS_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+
+      setMessage('')
+      setRating(5)
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Failed to post comment.'
+      setCommentError(messageText)
+    }
   }
 
   const getBookingSummary = () => {
@@ -566,11 +639,17 @@ export default function PropertyDetail() {
                   required
                 />
 
-                <Button type="submit" className="w-full sm:w-auto">
+                <Button type="submit" className="w-full sm:w-auto" disabled={commentLoading}>
                   <Send className="w-4 h-4" />
-                  Post Comment
+                  {commentLoading ? 'Posting...' : 'Post Comment'}
                 </Button>
               </form>
+
+              {commentError && (
+                <div className="mb-4 bg-card border border-border rounded-2xl p-4 text-sm text-destructive">
+                  {commentError}
+                </div>
+              )}
 
               <div className="space-y-4">
                 {propertyComments.length === 0 && (

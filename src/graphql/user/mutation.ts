@@ -275,3 +275,81 @@ mutation CreateProperty($input: PropertyInput!) {
 }
 `;
 
+/**************************
+ *         ADMIN          *
+ *************************/
+
+export const UPDATE_MEMBERS_BY_ADMIN = gql`
+    mutation UpdateMembersByAdmin($input: MemberUpdate!) {
+        updateMembersByAdmin(input: $input) {
+            _id
+            memberNick
+            memberPhone
+            memberType
+            memberStatus
+            memberFullName
+            memberImage
+            updatedAt
+        }
+    }
+`
+
+export const UPDATE_PROPERTY_BY_ADMIN = gql`
+    mutation UpdatePropertyByAdmin($input: PropertyUpdate!) {
+        updatePropertyByAdmin(input: $input) {
+            _id
+            propertyStatus
+            updatedAt
+        }
+    }
+`
+
+export const REMOVE_PROPERTY_BY_ADMIN = gql`
+    mutation RemovePropertyByAdmin($propertyId: String!) {
+        removePropertyByAdmin(propertyId: $propertyId) {
+            _id
+            propertyTitle
+            propertyStatus
+        }
+    }
+`
+
+export const UPDATE_BOARD_ARTICLE_BY_ADMIN = gql`
+    mutation UpdateBoardArticleByAdmin($input: BoardArticleUpdate!) {
+        updateBoardArticleByAdmin(input: $input) {
+            _id
+            articleCategory
+            articleStatus
+            articleTitle
+            articleContent
+            articleImage
+            updatedAt
+        }
+    }
+`
+
+export const REMOVE_BOARD_ARTICLE_BY_ADMIN = gql`
+    mutation RemoveBoardArticleByAdmin($articleId: String!) {
+        removeBoardArticleByAdmin(articleId: $articleId) {
+            _id
+            articleTitle
+            articleStatus
+        }
+    }
+`
+
+export const REMOVE_COMMENT_BY_ADMIN = gql`
+    mutation RemoveCommentByAdmin($commentId: String!) {
+        removeCommentByAdmin(commentId: $commentId) {
+            _id
+            commentGroup
+            commentRefId
+            commentContent
+            commentStars
+            memberId
+            createdAt
+            updatedAt
+        }
+    }
+`
+

@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, Globe, User } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { clearAccessToken, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
+import { clearAccessToken, getAccountDashboardPath, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
 
 const navLinks = [
   { label: 'Villas', type: 'route' as const, to: '/properties?category=villa' },
@@ -76,6 +76,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
   }
 
   const useSolidStyle = forceSolid || isScrolled
+  const accountDashboardPath = getAccountDashboardPath()
 
   const handleLogout = () => {
     clearAccessToken()
@@ -176,7 +177,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
             {hasAuthSession ? (
               <>
                 <Link
-                  to="/my-page"
+                  to={accountDashboardPath}
                   className={`hidden sm:inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full gentle-animation ${
                     useSolidStyle
                       ? 'text-foreground hover:bg-muted'
@@ -287,7 +288,7 @@ export function Navbar({ forceSolid = false }: NavbarProps) {
             {hasAuthSession ? (
               <>
                 <Link
-                  to="/my-page"
+                  to={accountDashboardPath}
                   className="mt-2 px-8 py-3 border border-border text-foreground rounded-full text-sm font-medium"
                   onClick={() => setIsMobileMenuOpen(false)}
                 >

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@apollo/client/react'
 import { Star, MapPin, Heart } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -84,7 +84,14 @@ function readLikedPropertyIds(): string[] {
   }
 }
 
+function writeLikedPropertyIds(ids: string[]): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(LIKED_PROPERTIES_KEY, JSON.stringify(ids))
+}
+
 export default function MyFavorites() {
+  const [likedIds, setLikedIds] = useState<string[]>(readLikedPropertyIds)
+
   const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
     variables: {
       input: {
@@ -98,7 +105,16 @@ export default function MyFavorites() {
     fetchPolicy: 'network-only',
   })
 
-  const likedIds = readLikedPropertyIds()
+  useEffect(() => {
+    writeLikedPropertyIds(likedIds)
+  }, [likedIds])
+
+  const toggleLike = (propertyId: string) => {
+    setLikedIds((prev) =>
+      prev.includes(propertyId) ? prev.filter((id) => id !== propertyId) : [...prev, propertyId],
+    )
+  }
+
   const baseFavorites: FavoriteProperty[] = (data?.getProperties?.list || [])
     .filter((item) => likedIds.includes(item._id))
     .map((item) => ({
@@ -147,8 +163,13 @@ export default function MyFavorites() {
                 <Link to={`/properties/${p.id}`} className="block h-full">
                   <img src={p.image} alt={p.title} className="w-full h-full object-cover gentle-animation group-hover:scale-105" />
                 </Link>
-                <button className="absolute top-3 right-3 p-2 bg-card/90 backdrop-blur-sm rounded-full">
-                  <Heart className="w-4 h-4 text-gold fill-gold" />
+                <button
+                  type="button"
+                  onClick={() => toggleLike(p.id)}
+                  className="absolute top-4 right-4 z-30 w-10 h-10 bg-white/90 backdrop-blur-md rounded-full flex items-center justify-center shadow-sm"
+                  title="Remove from favorites"
+                >
+                  <Heart className="w-4 h-4 transition-colors fill-red-500 text-red-500" />
                 </button>
               </div>
               <div className="p-5">

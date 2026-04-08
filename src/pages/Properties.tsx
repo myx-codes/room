@@ -8,9 +8,10 @@ import { amenityLabels } from '@/data/mockData'
 import { GET_PROPERTIES } from '@/graphql/user/query'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
+import { Navbar } from '@/components/Navbar'
+import { Footer } from '@/components/Footer'
 import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { cn } from '@/lib/utils'
-import { clearAccessToken, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
 import type { DateRange } from 'react-day-picker'
 
 type PropertyCategory = 'villa' | 'hotel' | 'sanatorium'
@@ -158,9 +159,6 @@ export default function Properties() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'rating' | 'reviews'>('rating')
   const [likedIds, setLikedIds] = useState<string[]>(readLikedPropertyIds)
-  const [hasAuthSession, setHasAuthSession] = useState(isAuthenticated())
-
-  const authEventName = getAuthChangedEventName()
 
   const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
     variables: {
@@ -192,16 +190,6 @@ export default function Properties() {
       }),
     [allProperties, ratingsById],
   )
-
-  useEffect(() => {
-    const syncAuthState = () => setHasAuthSession(isAuthenticated())
-    window.addEventListener('storage', syncAuthState)
-    window.addEventListener(authEventName, syncAuthState)
-    return () => {
-      window.removeEventListener('storage', syncAuthState)
-      window.removeEventListener(authEventName, syncAuthState)
-    }
-  }, [authEventName])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -241,36 +229,10 @@ export default function Properties() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="font-display text-2xl font-bold text-foreground">
-            ROOM<span className="text-gold">i</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            {hasAuthSession ? (
-              <>
-                <Link to="/my-page" className="text-sm font-medium text-foreground hover:text-gold gentle-animation">My Account</Link>
-                <button
-                  onClick={() => {
-                    clearAccessToken()
-                  }}
-                  className="text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-full hover:opacity-90 gentle-animation"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <Link to="/sign-in" className="text-sm font-medium text-foreground hover:text-gold gentle-animation">Sign In</Link>
-                <Link to="/sign-up" className="text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-full hover:opacity-90 gentle-animation">Sign Up</Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navbar forceSolid />
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="pt-20">
+        <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Search & Filter Bar */}
         <div className="flex flex-col sm:flex-row items-stretch gap-3 mb-8">
           <div className="flex-1 flex items-center gap-2 bg-card border border-border rounded-xl px-4 py-3">
@@ -489,7 +451,10 @@ export default function Properties() {
               className="mt-4 text-gold font-medium hover:underline">Clear all filters</button>
           </div>
         )}
+        </div>
       </div>
+
+      <Footer />
     </div>
   )
 }

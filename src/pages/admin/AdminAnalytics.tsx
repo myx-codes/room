@@ -1,54 +1,280 @@
-import { DollarSign, Users, Home, TrendingUp } from 'lucide-react'
-import { bookings, properties, users } from '@/data/mockData'
+import { useMemo } from 'react'
+import { useQuery } from '@apollo/client/react'
+import { BarChart3, Users, Home, Newspaper } from 'lucide-react'
+import {
+  GET_ALL_BOARD_ARTICLES_BY_ADMIN,
+  GET_ALL_MEMBERS_BY_ADMIN,
+  GET_ALL_PROPERTIES_BY_ADMIN,
+} from '@/graphql/user/query'
 
-const stats = [
-  { label: 'Total Revenue', value: `$${bookings.reduce((s, b) => s + b.total, 0).toLocaleString()}`, icon: DollarSign, change: '+12%' },
-  { label: 'Total Properties', value: properties.length, icon: Home, change: '+3' },
-  { label: 'Total Users', value: users.length, icon: Users, change: '+8' },
-  { label: 'Bookings', value: bookings.length, icon: TrendingUp, change: '+5' },
-]
+type MemberStatus = 'ACTIVE' | 'BLOCK' | 'DELETE'
+type MemberType = 'USER' | 'AGENT' | 'ADMIN'
+type PropertyStatus = 'ACTIVE' | 'HOLD' | 'DELETE' | 'BOOKED'
+type ArticleStatus = 'ACTIVE' | 'WAITING' | 'DELETE' | 'HOLD'
+type ArticleCategory = 'FREE' | 'NEWS' | 'EVENT' | 'HELP' | 'RECOMMEND' | 'LIFESTYLE'
 
-const monthlyRevenue = [
-  { month: 'Jan', revenue: 4200 }, { month: 'Feb', revenue: 5100 },
-  { month: 'Mar', revenue: 6300 }, { month: 'Apr', revenue: 7800 },
-]
+type AnalyticsMember = {
+  _id: string
+  memberType: MemberType
+  memberStatus: MemberStatus
+  createdAt: string
+}
+
+type AnalyticsProperty = {
+  _id: string
+  propertyTitle: string
+  propertyStatus: PropertyStatus
+  propertyPrice: number
+  createdAt: string
+}
+
+type AnalyticsArticle = {
+  _id: string
+  articleCategory: ArticleCategory
+  articleStatus: ArticleStatus
+  createdAt: string
+}
+
+type GetAllMembersByAdminResponse = {
+  getAllMembersByAdmin: {
+    list: AnalyticsMember[]
+    metaCounter?: Array<{
+      total?: number | null
+    }> | null
+  }
+}
+
+type GetAllMembersByAdminVariables = {
+  input: {
+    page: number
+    limit: number
+    sort: string
+    direction: 'ASC' | 'DESC'
+    search: {
+      memberStatus?: MemberStatus
+      memberType?: MemberType
+      text?: string
+    }
+  }
+}
+
+type GetAllPropertiesByAdminResponse = {
+  getAllPropertiesByAdmin: {
+    list: AnalyticsProperty[]
+    metaCounter?: Array<{
+      total?: number | null
+    }> | null
+  }
+}
+
+type GetAllPropertiesByAdminVariables = {
+  input: {
+    page: number
+    limit: number
+    sort: string
+    direction: 'ASC' | 'DESC'
+    search: {
+      propertyStatus?: PropertyStatus
+      propertyLocationList?: string[]
+    }
+  }
+}
+
+type GetAllBoardArticlesByAdminResponse = {
+  getAllBoardArticlesByAdmin: {
+    list: AnalyticsArticle[]
+    metaCounter?: Array<{
+      total?: number | null
+    }> | null
+  }
+}
+
+type GetAllBoardArticlesByAdminVariables = {
+  input: {
+    page: number
+    limit: number
+    sort: string
+    direction: 'ASC' | 'DESC'
+    search: {
+      articleStatus?: ArticleStatus
+      articleCategory?: ArticleCategory
+    }
+  }
+}
+
+function buildRecentMonthBuckets(monthCount: number): Array<{ key: string; label: string; count: number }> {
+  const now = new Date()
+  const buckets: Array<{ key: string; label: string; count: number }> = []
+
+  for (let offset = monthCount - 1; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1)
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const label = date.toLocaleDateString(undefined, { month: 'short' })
+    buckets.push({ key, label, count: 0 })
+  }
+
+  return buckets
+}
 
 export default function AdminAnalytics() {
-  const maxRevenue = Math.max(...monthlyRevenue.map((m) => m.revenue))
+  const {
+    data: membersData,
+    loading: membersLoading,
+    error: membersError,
+  } = useQuery<GetAllMembersByAdminResponse, GetAllMembersByAdminVariables>(GET_ALL_MEMBERS_BY_ADMIN, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 200,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {
+          text: '',
+        },
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const {
+    data: propertiesData,
+    loading: propertiesLoading,
+    error: propertiesError,
+  } = useQuery<GetAllPropertiesByAdminResponse, GetAllPropertiesByAdminVariables>(GET_ALL_PROPERTIES_BY_ADMIN, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 200,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {},
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const {
+    data: articlesData,
+    loading: articlesLoading,
+    error: articlesError,
+  } = useQuery<GetAllBoardArticlesByAdminResponse, GetAllBoardArticlesByAdminVariables>(GET_ALL_BOARD_ARTICLES_BY_ADMIN, {
+    variables: {
+      input: {
+        page: 1,
+        limit: 200,
+        sort: 'createdAt',
+        direction: 'DESC',
+        search: {},
+      },
+    },
+    fetchPolicy: 'network-only',
+  })
+
+  const isLoading = membersLoading || propertiesLoading || articlesLoading
+  const firstError = membersError || propertiesError || articlesError
+
+  const members = membersData?.getAllMembersByAdmin?.list ?? []
+  const properties = propertiesData?.getAllPropertiesByAdmin?.list ?? []
+  const articles = articlesData?.getAllBoardArticlesByAdmin?.list ?? []
+
+  const totalMembers = useMemo(() => {
+    const total = membersData?.getAllMembersByAdmin?.metaCounter?.[0]?.total
+    return typeof total === 'number' ? total : members.length
+  }, [membersData, members.length])
+
+  const totalProperties = useMemo(() => {
+    const total = propertiesData?.getAllPropertiesByAdmin?.metaCounter?.[0]?.total
+    return typeof total === 'number' ? total : properties.length
+  }, [propertiesData, properties.length])
+
+  const totalArticles = useMemo(() => {
+    const total = articlesData?.getAllBoardArticlesByAdmin?.metaCounter?.[0]?.total
+    return typeof total === 'number' ? total : articles.length
+  }, [articlesData, articles.length])
+
+  const averagePropertyPrice = useMemo(() => {
+    if (properties.length === 0) return 0
+    const sum = properties.reduce((acc, property) => acc + (property.propertyPrice || 0), 0)
+    return Math.round(sum / properties.length)
+  }, [properties])
+
+  const monthlyMembers = useMemo(() => {
+    const buckets = buildRecentMonthBuckets(6)
+    const indexByKey = new Map(buckets.map((bucket, index) => [bucket.key, index]))
+
+    members.forEach((member) => {
+      const date = new Date(member.createdAt)
+      if (Number.isNaN(date.getTime())) return
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      const index = indexByKey.get(key)
+      if (index === undefined) return
+      buckets[index].count += 1
+    })
+
+    return buckets
+  }, [members])
+
+  const maxMonthlyMembers = Math.max(1, ...monthlyMembers.map((item) => item.count))
 
   return (
     <div>
       <div className="mb-8">
         <h2 className="font-display text-2xl font-bold text-foreground">Analytics</h2>
-        <p className="text-sm text-muted-foreground mt-1">Platform overview</p>
+        <p className="text-sm text-muted-foreground mt-1">Platform overview from live database data</p>
       </div>
 
-      {/* Stats Grid */}
+      {isLoading && <p className="text-sm text-muted-foreground mb-4">Loading analytics...</p>}
+      {firstError && <p className="text-sm text-destructive mb-4">Failed to load analytics: {firstError.message}</p>}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {stats.map((s) => (
-          <div key={s.label} className="bg-card border border-border rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-3">
-              <s.icon className="w-5 h-5 text-muted-foreground" />
-              <span className="text-xs font-medium text-green-600">{s.change}</span>
-            </div>
-            <p className="font-display text-2xl font-bold text-foreground">{s.value}</p>
-            <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+        <div className="bg-card border border-border rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <Users className="w-5 h-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Live</span>
           </div>
-        ))}
+          <p className="font-display text-2xl font-bold text-foreground">{totalMembers}</p>
+          <p className="text-xs text-muted-foreground mt-1">Total Users</p>
+        </div>
+
+        <div className="bg-card border border-border rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <Home className="w-5 h-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Live</span>
+          </div>
+          <p className="font-display text-2xl font-bold text-foreground">{totalProperties}</p>
+          <p className="text-xs text-muted-foreground mt-1">Total Properties</p>
+        </div>
+
+        <div className="bg-card border border-border rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <Newspaper className="w-5 h-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Live</span>
+          </div>
+          <p className="font-display text-2xl font-bold text-foreground">{totalArticles}</p>
+          <p className="text-xs text-muted-foreground mt-1">Board Articles</p>
+        </div>
+
+        <div className="bg-card border border-border rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <BarChart3 className="w-5 h-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Average</span>
+          </div>
+          <p className="font-display text-2xl font-bold text-foreground">${averagePropertyPrice}</p>
+          <p className="text-xs text-muted-foreground mt-1">Avg Property Price</p>
+        </div>
       </div>
 
-      {/* Simple Bar Chart */}
       <div className="bg-card border border-border rounded-2xl p-6">
-        <h3 className="font-display text-lg font-semibold text-foreground mb-6">Monthly Revenue</h3>
+        <h3 className="font-display text-lg font-semibold text-foreground mb-6">New Users (Last 6 Months)</h3>
         <div className="flex items-end gap-4 h-48">
-          {monthlyRevenue.map((m) => (
-            <div key={m.month} className="flex-1 flex flex-col items-center gap-2">
-              <span className="text-xs font-medium text-foreground">${(m.revenue / 1000).toFixed(1)}k</span>
+          {monthlyMembers.map((item) => (
+            <div key={item.key} className="flex-1 flex flex-col items-center gap-2">
+              <span className="text-xs font-medium text-foreground">{item.count}</span>
               <div
                 className="w-full bg-gold/80 rounded-t-lg gentle-animation hover:bg-gold"
-                style={{ height: `${(m.revenue / maxRevenue) * 100}%` }}
+                style={{ height: `${(item.count / maxMonthlyMembers) * 100}%` }}
               />
-              <span className="text-xs text-muted-foreground">{m.month}</span>
+              <span className="text-xs text-muted-foreground">{item.label}</span>
             </div>
           ))}
         </div>

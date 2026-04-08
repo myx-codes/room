@@ -45,6 +45,11 @@ export default function MyPage() {
   }, [])
 
   const isAgent = memberType === 'AGENT'
+  const isAdmin = memberType === 'ADMIN'
+
+  if (isAdmin) {
+    return <Navigate to="/admin" replace />
+  }
 
   return (
     <div className="min-h-screen bg-background">

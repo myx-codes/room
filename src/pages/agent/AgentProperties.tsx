@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@apollo/client/react'
+import Swal from 'sweetalert2'
 import { Star, MapPin, Pencil, Plus, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CREATE_PROPERTY } from '@/graphql/user/mutation'
@@ -525,7 +526,14 @@ export default function AgentProperties() {
       })
 
       if (!data?.createProperty?._id) {
-        setSubmitError('Listing was not created. Please try again.')
+        const message = 'Listing was not created. Please try again.'
+        setSubmitError(message)
+        await Swal.fire({
+          icon: 'error',
+          title: 'Property add failed',
+          text: message,
+          confirmButtonText: 'OK',
+        })
         return
       }
 
@@ -533,9 +541,21 @@ export default function AgentProperties() {
       setSubmitSuccess('Listing was created successfully.')
       resetForm()
       setIsAddOpen(false)
+      await Swal.fire({
+        icon: 'success',
+        title: 'Property added successfully',
+        text: 'Your listing has been published.',
+        confirmButtonText: 'Great',
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'An error occurred while creating the listing.'
       setSubmitError(message)
+      await Swal.fire({
+        icon: 'error',
+        title: 'Property add failed',
+        text: message,
+        confirmButtonText: 'OK',
+      })
     }
   }
 

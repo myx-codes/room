@@ -87,7 +87,13 @@ export default function SignIn() {
         // Hozircha localStorage ishlatilmoqda; eslatma uchun joy qoldirildi.
       }
 
-      navigate('/')
+      if (data.login.memberType === 'ADMIN') {
+        navigate('/admin')
+      } else if (data.login.memberType === 'AGENT') {
+        navigate('/agent')
+      } else {
+        navigate('/')
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login xatosi yuz berdi.'
       setFormError(message)

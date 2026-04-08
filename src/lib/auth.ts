@@ -72,3 +72,11 @@ export function getAuthChangedEventName() {
 export function isAuthenticated(): boolean {
   return Boolean(getMemberProfile())
 }
+
+export function getAccountDashboardPath(): string {
+  const memberType = String(getMemberProfile()?.memberType || '').toUpperCase()
+
+  if (memberType === 'ADMIN') return '/admin'
+  if (memberType === 'AGENT') return '/agent'
+  return '/my-page'
+}

@@ -100,3 +100,78 @@ export const GET_COMMENTS = gql`
     }
   }
 `
+
+/**************************
+ *         ADMIN          *
+ *************************/
+
+export const GET_ALL_MEMBERS_BY_ADMIN = gql`
+  query GetAllMembersByAdmin($input: MembersInquiry!) {
+    getAllMembersByAdmin(input: $input) {
+      list {
+        _id
+        memberNick
+        memberPhone
+        memberType
+        memberStatus
+        memberFullName
+        memberImage
+        memberLikes
+        memberViews
+        memberComments
+        createdAt
+        updatedAt
+      }
+      metaCounter {
+        total
+      }
+    }
+  }
+`
+
+export const GET_ALL_PROPERTIES_BY_ADMIN = gql`
+  query GetAllPropertiesByAdmin($input: AllPropertiesInquiry!) {
+    getAllPropertiesByAdmin(input: $input) {
+      list {
+        _id
+        propertyTitle
+        propertyType
+        propertyStatus
+        propertyLocation
+        propertyPrice
+        propertyViews
+        propertyLikes
+        propertyComments
+        propertyRank
+        memberId
+        createdAt
+        updatedAt
+      }
+      metaCounter {
+        total
+      }
+    }
+  }
+`
+
+export const GET_ALL_BOARD_ARTICLES_BY_ADMIN = gql`
+  query GetAllBoardArticlesByAdmin($input: AllBoardArticlesInquiry!) {
+    getAllBoardArticlesByAdmin(input: $input) {
+      list {
+        _id
+        articleCategory
+        articleStatus
+        articleTitle
+        articleLikes
+        articleViews
+        articleComments
+        memberId
+        createdAt
+        updatedAt
+      }
+      metaCounter {
+        total
+      }
+    }
+  }
+`

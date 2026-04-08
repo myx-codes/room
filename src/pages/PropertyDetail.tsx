@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ElementType, type FormEvent } from '
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMutation, useQuery } from '@apollo/client/react'
+import Swal from 'sweetalert2'
 import {
   Star,
   MapPin,
@@ -368,7 +369,6 @@ export default function PropertyDetail() {
   const [checkOutDate, setCheckOutDate] = useState('')
   const [guestCount, setGuestCount] = useState(1)
   const [bookingError, setBookingError] = useState('')
-  const [bookingSuccess, setBookingSuccess] = useState('')
   const [showBookingReview, setShowBookingReview] = useState(false)
   const [savedCards, setSavedCards] = useState<SavedCard[]>([])
   const [selectedCardId, setSelectedCardId] = useState('')
@@ -493,7 +493,6 @@ export default function PropertyDetail() {
 
   const handleReviewBooking = () => {
     setBookingError('')
-    setBookingSuccess('')
 
     const cards = readSavedCards()
     setSavedCards(cards)
@@ -525,7 +524,6 @@ export default function PropertyDetail() {
 
   const handleCreateBooking = async () => {
     setBookingError('')
-    setBookingSuccess('')
 
     if (!isAuthenticated()) {
       setBookingError('Please sign in to create a booking.')
@@ -562,15 +560,33 @@ export default function PropertyDetail() {
       })
 
       if (!bookingData?.createBooking?._id) {
-        setBookingError('Booking was not created. Please try again.')
+        const message = 'Booking was not created. Please try again.'
+        setBookingError(message)
+        await Swal.fire({
+          icon: 'error',
+          title: 'Booking failed',
+          text: message,
+          confirmButtonText: 'OK',
+        })
         return
       }
 
-      setBookingSuccess('Booking created successfully! You can view it in My Bookings.')
       setShowBookingReview(false)
+      await Swal.fire({
+        icon: 'success',
+        title: 'Booked successfully',
+        text: 'Your booking has been created.',
+        confirmButtonText: 'Great',
+      })
     } catch (error) {
       const messageText = error instanceof Error ? error.message : 'Failed to create booking.'
       setBookingError(messageText)
+      await Swal.fire({
+        icon: 'error',
+        title: 'Booking failed',
+        text: messageText,
+        confirmButtonText: 'OK',
+      })
     }
   }
 
@@ -800,7 +816,6 @@ export default function PropertyDetail() {
                 Review Booking
               </Button>
               {bookingError && <p className="text-sm text-destructive mt-3">{bookingError}</p>}
-              {bookingSuccess && <p className="text-sm text-green-600 mt-3">{bookingSuccess}</p>}
               <Link
                 to="/properties"
                 className="block text-center text-sm text-muted-foreground hover:text-foreground mt-3 gentle-animation"

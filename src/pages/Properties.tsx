@@ -1,17 +1,16 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery } from '@apollo/client/react'
 import { Star, Heart, MapPin, SlidersHorizontal, X, Calendar } from 'lucide-react'
 import { format } from 'date-fns'
 import { amenityLabels } from '@/data/mockData'
-import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
+import { GET_PROPERTIES } from '@/graphql/user/query'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
+import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { cn } from '@/lib/utils'
 import { clearAccessToken, getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
-import { apolloClient } from '@/lib/apolloClient'
-import { CommentGroup } from '@/lib/client/enums/comment.enum'
 import type { DateRange } from 'react-day-picker'
 
 type PropertyCategory = 'villa' | 'hotel' | 'sanatorium'
@@ -23,6 +22,7 @@ type ApiProperty = {
   propertyTitle: string
   propertyPrice: number
   propertyRank?: number
+  propertyRatingCount?: number
   propertyComments: number
   propertyImages: string[]
   propertyDesc?: string | null
@@ -34,7 +34,7 @@ type DisplayProperty = {
   location: string
   price: number
   rating: number
-  reviews: number
+  ratingCount: number
   image: string
   category: PropertyCategory
   amenities: string[]
@@ -115,53 +115,10 @@ function mapApiProperty(item: ApiProperty): DisplayProperty {
     location: formatLocation(item.propertyLocation),
     price: item.propertyPrice,
     rating: item.propertyRank || 0,
-    reviews: item.propertyComments || 0,
+    ratingCount: item.propertyRatingCount ?? item.propertyComments ?? 0,
     image: resolveImageUrl(item.propertyImages?.[0]),
     category: mapPropertyType(item.propertyType),
     amenities: parseAmenitiesFromDescription(item.propertyDesc),
-  }
-}
-
-function parseRoomiRatingFromCommentContent(content: string): number | null {
-  // Backend `commentContent` contains rating prefix like:
-  // ROOMi_RATING:5
-  // Actual message...
-  const match = content?.match(/^ROOMi_RATING:(\d{1,2})\s*\r?\n/)
-  if (!match) return null
-
-  const parsed = Number(match[1])
-  if (!Number.isFinite(parsed)) return null
-  const rating = Math.min(5, Math.max(1, parsed))
-  return rating
-}
-
-type BackendComment = {
-  _id: string
-  commentGroup: CommentGroup
-  commentContent: string
-  commentRefId: string
-  createdAt: string
-  memberData?: {
-    memberNick: string
-    memberFullName: string | null
-  } | null
-}
-
-type GetCommentsResponse = {
-  getComments: {
-    list: BackendComment[]
-  }
-}
-
-type GetCommentsVariables = {
-  input: {
-    page: number
-    limit: number
-    sort?: string
-    direction?: 'ASC' | 'DESC'
-    search: {
-      commentRefId: string
-    }
   }
 }
 
@@ -219,6 +176,22 @@ export default function Properties() {
   })
 
   const allProperties = useMemo(() => (data?.getProperties?.list || []).map(mapApiProperty), [data])
+  const propertyIds = useMemo(() => allProperties.map((property) => property.id), [allProperties])
+  const ratingsById = usePropertyRatings(propertyIds)
+  const allPropertiesWithDbRatings = useMemo(
+    () =>
+      allProperties.map((property) => {
+        const dbRating = ratingsById[property.id]
+        if (!dbRating) return property
+
+        return {
+          ...property,
+          rating: dbRating.rating,
+          ratingCount: dbRating.ratingCount,
+        }
+      }),
+    [allProperties, ratingsById],
+  )
 
   useEffect(() => {
     const syncAuthState = () => setHasAuthSession(isAuthenticated())
@@ -236,7 +209,7 @@ export default function Properties() {
   }, [likedIds])
 
   const filtered = useMemo(() => {
-    let result = allProperties.filter((p) => {
+    let result = allPropertiesWithDbRatings.filter((p) => {
       if (category !== 'all' && p.category !== category) return false
       if (location && !p.location.toLowerCase().includes(location.toLowerCase())) return false
       if (p.price < priceRange[0] || p.price > priceRange[1]) return false
@@ -250,79 +223,13 @@ export default function Properties() {
         case 'price-asc': return a.price - b.price
         case 'price-desc': return b.price - a.price
         case 'rating': return b.rating - a.rating
-        case 'reviews': return b.reviews - a.reviews
+        case 'reviews': return b.ratingCount - a.ratingCount
         default: return 0
       }
     })
 
     return result
-  }, [allProperties, category, location, priceRange, minRating, selectedAmenities, sortBy])
-
-  const [ratingsById, setRatingsById] = useState<Record<string, { rating: number; reviews: number }>>({})
-  const fetchedRatingsRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (filtered.length === 0) return
-
-    const idsToProcess = filtered.map((p) => p.id)
-    const idsToFetch = idsToProcess.filter((id) => !fetchedRatingsRef.current.has(id))
-    if (idsToFetch.length === 0) return
-
-    idsToFetch.forEach((id) => fetchedRatingsRef.current.add(id))
-
-    let cancelled = false
-    const CONCURRENCY = 6
-    const queue = [...idsToFetch]
-
-    const worker = async () => {
-      while (queue.length > 0 && !cancelled) {
-        const propertyId = queue.shift()
-        if (!propertyId) break
-
-        try {
-          const { data: commentsData } = await apolloClient.query<GetCommentsResponse, GetCommentsVariables>({
-            query: GET_COMMENTS,
-            variables: {
-              input: {
-                page: 1,
-                limit: 50,
-                sort: 'createdAt',
-                direction: 'DESC',
-                search: {
-                  commentRefId: propertyId,
-                },
-              },
-            },
-            fetchPolicy: 'network-only',
-          })
-
-          const list = commentsData?.getComments?.list ?? []
-          const ratings = list
-            .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === propertyId)
-            .map((c) => parseRoomiRatingFromCommentContent(c.commentContent))
-            .filter((r): r is number => r !== null)
-
-          if (ratings.length === 0) continue
-
-          const avg = ratings.reduce((sum, r) => sum + r, 0) / ratings.length
-          const ratingAvg = Math.round(avg * 10) / 10
-
-          setRatingsById((prev) => ({
-            ...prev,
-            [propertyId]: { rating: ratingAvg, reviews: ratings.length },
-          }))
-        } catch {
-          // Ignore per-property failures so the page stays responsive.
-        }
-      }
-    }
-
-    Promise.all(Array.from({ length: CONCURRENCY }, worker))
-    return () => {
-      cancelled = true
-    }
-  }, [filtered])
+  }, [allPropertiesWithDbRatings, category, location, priceRange, minRating, selectedAmenities, sortBy])
 
   const toggleAmenity = (a: string) => {
     setSelectedAmenities((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])
@@ -554,9 +461,15 @@ export default function Properties() {
                   <h3 className="font-display text-xl font-bold text-slate-900 mb-4 leading-tight group-hover:text-blue-600 gentle-animation">{prop.title}</h3>
                   <div className="flex items-center justify-between pt-5 border-t border-slate-50">
                     <div className="flex items-center gap-1">
-                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    <span className="text-sm font-bold text-slate-900">{ratingsById[prop.id]?.rating ?? prop.rating}</span>
-                    <span className="text-[10px] text-slate-400 font-medium">({ratingsById[prop.id]?.reviews ?? prop.reviews})</span>
+                      {prop.ratingCount > 0 ? (
+                        <>
+                          <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                          <span className="text-sm font-bold text-slate-900">{prop.rating.toFixed(1)}</span>
+                          <span className="text-[10px] text-slate-400 font-medium">({prop.ratingCount} ta baho)</span>
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium"></span>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className="text-xl font-bold text-slate-900">${prop.price}</span>

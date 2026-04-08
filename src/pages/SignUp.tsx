@@ -1,20 +1,31 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Phone, Lock, User, BriefcaseBusiness } from 'lucide-react'
+import { Eye, EyeOff, Phone, Lock, User, BriefcaseBusiness, Shield } from 'lucide-react'
 import { useMutation } from '@apollo/client/react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { SIGN_UP } from '@/graphql/user/mutation'
+import { LOGIN, SIGN_UP } from '@/graphql/user/mutation'
+import { setAccessToken, setMemberProfile } from '@/lib/auth'
 import { MemberType } from '@/lib/client/enums/member.enum'
+import type { Member } from '@/types/member'
 
 type SignUpResponse = {
   signup: {
     _id: string
     memberNick: string
   }
+}
+
+type LoginResponse = {
+  login: Member
+}
+
+type LoginVariables = {
+  memberNick: string
+  memberPassword: string
 }
 
 type SignUpVariables = {
@@ -39,20 +50,25 @@ export default function SignUp() {
   const [formError, setFormError] = useState('')
 
   const [signUpMember, { loading: signUpLoading }] = useMutation<SignUpResponse, SignUpVariables>(SIGN_UP)
+  const [loginMember, { loading: adminAutoLoginLoading }] = useMutation<LoginResponse, LoginVariables>(LOGIN)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError('')
+    const selectedMemberType = memberType
+    const trimmedNick = memberNick.trim()
+    const trimmedPhone = phoneNumber.trim()
+    const trimmedFullName = fullName.trim()
 
     try {
       const { data } = await signUpMember({
         variables: {
           input: {
-            memberType,
-            memberPhone: phoneNumber.trim(),
-            memberNick: memberNick.trim(),
+            memberType: selectedMemberType,
+            memberPhone: trimmedPhone,
+            memberNick: trimmedNick,
             memberPassword: password,
-            memberFullName: fullName.trim(),
+            memberFullName: trimmedFullName,
           },
         },
       })
@@ -62,9 +78,58 @@ export default function SignUp() {
         return
       }
 
+      if (selectedMemberType === MemberType.ADMIN) {
+        const { data: loginData } = await loginMember({
+          variables: {
+            memberNick: trimmedNick,
+            memberPassword: password,
+          },
+        })
+
+        if (!loginData?.login) {
+          setFormError('Admin ro\'yxatdan o\'tdi, lekin avtomatik kirishda xatolik yuz berdi.')
+          return
+        }
+
+        setMemberProfile({
+          _id: loginData.login._id,
+          memberType: loginData.login.memberType,
+          memberStatus: loginData.login.memberStatus,
+          memberAuthType: loginData.login.memberAuthType,
+          memberPhone: loginData.login.memberPhone,
+          memberNick: loginData.login.memberNick,
+          memberFullName: loginData.login.memberFullName,
+          memberImage: loginData.login.memberImage,
+          memberProperties: loginData.login.memberProperties,
+          memberArticles: loginData.login.memberArticles,
+          memberPoints: loginData.login.memberPoints,
+          memberRank: loginData.login.memberRank,
+          memberLikes: loginData.login.memberLikes,
+          memberViews: loginData.login.memberViews,
+          memberComments: loginData.login.memberComments,
+          memberWarnings: loginData.login.memberWarnings,
+          memberBlocks: loginData.login.memberBlocks,
+          deletedAt: loginData.login.deletedAt,
+          createdAt: loginData.login.createdAt,
+          updatedAt: loginData.login.updatedAt,
+        })
+
+        setAccessToken(loginData.login.accessToken || '')
+        navigate('/admin')
+        return
+      }
+
       navigate('/sign-in')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Ro‘yxatdan o‘tishda xatolik yuz berdi.'
+      if (
+        selectedMemberType === MemberType.ADMIN &&
+        /already|exists|duplicate|admin/i.test(message)
+      ) {
+        setFormError('Admin akkaunt allaqachon mavjud. Platformada faqat bitta admin bo‘lishi mumkin.')
+        return
+      }
+
       setFormError(message)
     }
   }
@@ -154,7 +219,7 @@ export default function SignUp() {
 
             <div className="space-y-3">
               <Label>Account Type</Label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button
                   type="button"
                   onClick={() => setMemberType(MemberType.USER)}
@@ -188,6 +253,24 @@ export default function SignUp() {
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     Manage listings
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMemberType(MemberType.ADMIN)}
+                  className={`rounded-xl border px-4 py-3 text-left gentle-animation ${
+                    memberType === 'ADMIN'
+                      ? 'border-gold bg-gold/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted/50'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Shield className="w-4 h-4" />
+                    Admin
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Platform management
                   </span>
                 </button>
               </div>
@@ -252,8 +335,12 @@ export default function SignUp() {
               </Label>
             </div>
 
-            <Button type="submit" className="w-full h-12 text-base font-medium" disabled={!agreedToTerms || signUpLoading}>
-              {signUpLoading ? 'Creating Account...' : 'Create Account'}
+            <Button
+              type="submit"
+              className="w-full h-12 text-base font-medium"
+              disabled={!agreedToTerms || signUpLoading || adminAutoLoginLoading}
+            >
+              {signUpLoading || adminAutoLoginLoading ? 'Creating Account...' : 'Create Account'}
             </Button>
 
             {formError && (

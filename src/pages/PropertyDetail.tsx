@@ -24,8 +24,11 @@ import { Navbar } from '@/components/Navbar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { RatingInput } from '@/components/RatingInput'
+import { RatingPreview } from '@/components/RatingPreview'
 import { CREATE_BOOKINGS, CREATE_COMMENT } from '@/graphql/user/mutation'
 import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
+import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { isAuthenticated } from '@/lib/auth'
 import { CommentGroup } from '@/lib/client/enums/comment.enum'
 
@@ -48,6 +51,7 @@ type ApiProperty = {
   propertyTitle: string
   propertyPrice: number
   propertyRank?: number
+  propertyRatingCount?: number
   propertyComments: number
   propertyImages: string[]
   propertyDesc?: string | null
@@ -59,7 +63,7 @@ type DisplayProperty = {
   location: string
   price: number
   rating: number
-  reviews: number
+  ratingCount: number
   images: string[]
   category: PropertyCategory
   amenities: string[]
@@ -104,6 +108,7 @@ type CreateCommentResponse = {
     commentStatus: string
     commentGroup: CommentGroup
     commentContent: string
+    commentStars?: number | null
     commentRefId: string
     memberId: string
     createdAt: string
@@ -139,6 +144,7 @@ type CreateCommentVariables = {
     commentContent: string
     commentRefId: string
     commentGroup: CommentGroup
+    commentStars?: number
   }
 }
 
@@ -147,6 +153,7 @@ type BackendComment = {
   commentStatus: string
   commentGroup: CommentGroup
   commentContent: string
+  commentStars?: number | null
   commentRefId: string
   createdAt: string
   updatedAt: string
@@ -259,15 +266,14 @@ function formatDate(value: string): string {
   return date.toLocaleDateString()
 }
 
-function parseRoomiRatingFromCommentContent(content: string): { rating: number; message: string } {
-  if (!content) return { rating: 0, message: '' }
-  const match = content.match(/^rating:(\d{1,2})\s*\r?\n/)
-  if (!match) return { rating: 0, message: content }
+function normalizeStars(stars?: number | null): number {
+  if (typeof stars !== 'number' || !Number.isFinite(stars)) return 0
+  return Math.min(5, Math.max(1, Math.round(stars)))
+}
 
-  const parsedRating = Number(match[1])
-  const rating = Number.isFinite(parsedRating) ? Math.min(5, Math.max(1, parsedRating)) : 0
-  const message = content.slice(match[0].length).trim()
-  return { rating, message }
+function cleanCommentMessage(content: string): string {
+  if (!content) return ''
+  return content.replace(/^(?:ROOMi_RATING|rating):\d{1,2}\s*\r?\n/, '').trim()
 }
 
 function parseDescriptionAndAmenities(description?: string | null): { description: string; amenities: string[] } {
@@ -299,7 +305,7 @@ function mapApiProperty(item: ApiProperty): DisplayProperty {
     location: formatLocation(item.propertyLocation),
     price: item.propertyPrice,
     rating: item.propertyRank || 0,
-    reviews: item.propertyComments || 0,
+    ratingCount: item.propertyRatingCount ?? item.propertyComments ?? 0,
     images: (item.propertyImages || []).map((image) => resolveImageUrl(image)),
     category: mapPropertyType(item.propertyType),
     amenities: parsed.amenities,
@@ -311,7 +317,7 @@ export default function PropertyDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
 
-  const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+  const { data, loading, error, refetch: refetchProperties } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
     variables: {
       input: {
         page: 1,
@@ -328,6 +334,11 @@ export default function PropertyDetail() {
     () => (data?.getProperties?.list || []).map(mapApiProperty).find((p) => p.id === id),
     [data, id],
   )
+  const propertyIds = useMemo(() => (property ? [property.id] : []), [property])
+  const ratingsById = usePropertyRatings(propertyIds)
+  const computedPropertyRating = property ? ratingsById[property.id] : undefined
+  const displayedRating = computedPropertyRating?.rating ?? property?.rating ?? 0
+  const displayedReviews = computedPropertyRating?.ratingCount ?? property?.ratingCount ?? 0
 
   const {
     data: commentsData,
@@ -339,7 +350,7 @@ export default function PropertyDetail() {
       input: {
         page: 1,
         limit: 50,
-        sort: 'createdAt',
+        sort: 'commentStars',
         direction: 'DESC',
         search: {
           commentRefId: id || '',
@@ -382,28 +393,14 @@ export default function PropertyDetail() {
     const list = commentsData?.getComments?.list ?? []
     return list
       .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === id)
-      .map((c) => {
-        const parsed = parseRoomiRatingFromCommentContent(c.commentContent)
-        return {
-          id: c._id,
-          name: c.memberData?.memberFullName || c.memberData?.memberNick || 'Guest',
-          message: parsed.message,
-          rating: parsed.rating,
-          createdAt: c.createdAt,
-        }
-      })
+      .map((c) => ({
+        id: c._id,
+        name: c.memberData?.memberFullName || c.memberData?.memberNick || 'Guest',
+        message: cleanCommentMessage(c.commentContent),
+        rating: normalizeStars(c.commentStars),
+        createdAt: c.createdAt,
+      }))
   }, [commentsData, id])
-
-  const { displayedRating, displayedReviews } = useMemo(() => {
-    const validRatings = propertyComments.map((c) => c.rating).filter((r) => r > 0)
-    const count = validRatings.length
-    if (!count) {
-      return { displayedRating: property?.rating ?? 0, displayedReviews: property?.reviews ?? 0 }
-    }
-
-    const avg = validRatings.reduce((sum, r) => sum + r, 0) / count
-    return { displayedRating: avg, displayedReviews: count }
-  }, [property, propertyComments])
 
   if (loading) {
     return (
@@ -447,18 +444,26 @@ export default function PropertyDetail() {
       return
     }
 
+    const commentGroup = CommentGroup.PROPERTY
+    if (commentGroup === CommentGroup.PROPERTY && (rating < 1 || rating > 5)) {
+      setCommentError('Property comment uchun baho 1 dan 5 gacha bo\'lishi shart.')
+      return
+    }
+
     try {
+      const input: CreateCommentVariables['input'] = {
+        commentContent: cleanMessage,
+        commentRefId: property.id,
+        commentGroup,
+      }
+
+      if (commentGroup === CommentGroup.PROPERTY) {
+        input.commentStars = rating
+      }
+
       const { data: commentData } = await createComment({
         variables: {
-          input: {
-            // Backend `CommentInput` has no separate rating field.
-            // We store rating in the text so we can render stars later.
-            commentContent: `rating:${rating}\n${cleanMessage}`,
-            commentRefId: property.id,
-            // Backend `CommentGroup` enum: MEMBER | ARTICLE | PROPERTY.
-            // This page creates comments for a property, so we use `PROPERTY`.
-            commentGroup: CommentGroup.PROPERTY,
-          },
+          input,
         },
       })
 
@@ -468,8 +473,7 @@ export default function PropertyDetail() {
       setMessage('')
       setRating(5)
 
-      // Refresh DB comments after successful create.
-      await refetchComments()
+      await Promise.all([refetchComments(), refetchProperties()])
     } catch (error) {
       const messageText = error instanceof Error ? error.message : 'Failed to post comment.'
       setCommentError(messageText)
@@ -624,13 +628,7 @@ export default function PropertyDetail() {
               <span className="text-xs font-medium px-3 py-1 rounded-full bg-secondary text-secondary-foreground capitalize">
                 {property.category}
               </span>
-              <div className="flex items-center gap-1">
-                <Star className="w-4 h-4 fill-gold text-gold" />
-                <span className="text-sm font-semibold text-foreground">
-                  {typeof displayedRating === 'number' ? displayedRating.toFixed(1) : property.rating}
-                </span>
-                <span className="text-xs text-muted-foreground">({displayedReviews} reviews)</span>
-              </div>
+              <RatingPreview value={displayedRating} count={displayedReviews} />
             </div>
 
             <h1 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-2">
@@ -685,24 +683,8 @@ export default function PropertyDetail() {
                     <label className="block text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
                       Rating
                     </label>
-                    <div className="flex items-center gap-2">
-                      {[1, 2, 3, 4, 5].map((value) => {
-                        const isActive = value <= rating
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => setRating(value)}
-                            className="p-1 rounded-lg hover:bg-muted/50 transition-colors"
-                            aria-label={`Set rating ${value}`}
-                          >
-                            <Star
-                              className={`w-5 h-5 ${isActive ? 'text-gold fill-gold' : 'text-muted-foreground'}`}
-                            />
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <RatingInput value={rating} onChange={setRating} />
+                    <RatingPreview value={rating} className="mt-2" />
                   </div>
 
                 <Textarea

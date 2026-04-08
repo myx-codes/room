@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@apollo/client/react'
 import { Star, MapPin, Pencil, Plus, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CREATE_PROPERTY } from '@/graphql/user/mutation'
-import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
+import { GET_PROPERTIES } from '@/graphql/user/query'
+import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { getMemberProfile } from '@/lib/auth'
 import { amenityLabels } from '@/data/mockData'
-import { apolloClient } from '@/lib/apolloClient'
-import { CommentGroup } from '@/lib/client/enums/comment.enum'
 
 type PropertyType = 'VILLA' | 'HOTEL' | 'SANATORIUM'
 
@@ -18,6 +17,7 @@ type CreatedProperty = {
   propertyTitle: string
   propertyPrice: number
   propertyRank?: number
+  propertyRatingCount?: number
   propertyComments: number
   propertyImages: string[]
 }
@@ -69,7 +69,7 @@ type LocalPropertyCard = {
   location: string
   price: number
   rating: number
-  reviews: number
+  ratingCount: number
   image: string
   category: 'villa' | 'hotel' | 'sanatorium'
 }
@@ -94,8 +94,15 @@ type SanatoriumMeta = {
   highlights: SanatoriumHighlight[]
 }
 
+type CompactSanatoriumMeta = {
+  b: string
+  q: string
+  h: Array<[string, string]>
+}
+
 const FALLBACK_IMAGE = '/assets/hero-villa.jpg'
 const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3008/graphql'
+const PROPERTY_DESC_MAX_LENGTH = 500
 const AMENITY_OPTIONS = Object.entries(amenityLabels)
 const SANATORIUM_META_MARKER = 'ROOMI_SANATORIUM_META:'
 const DEFAULT_SANATORIUM_HIGHLIGHTS: SanatoriumHighlight[] = [
@@ -137,43 +144,9 @@ function toLocalPropertyCard(item: CreatedProperty): LocalPropertyCard {
     location: item.propertyLocation,
     price: item.propertyPrice,
     rating: item.propertyRank || 0,
-    reviews: item.propertyComments || 0,
+    ratingCount: item.propertyRatingCount ?? item.propertyComments ?? 0,
     image: resolveImageUrl(item.propertyImages?.[0]),
     category: mapPropertyTypeToCategory(item.propertyType),
-  }
-}
-
-function parseRoomiRatingFromCommentContent(content: string): number | null {
-  const match = content?.match(/^ROOMi_RATING:(\d{1,2})\s*\r?\n/)
-  if (!match) return null
-  const parsed = Number(match[1])
-  if (!Number.isFinite(parsed)) return null
-  return Math.min(5, Math.max(1, parsed))
-}
-
-type BackendComment = {
-  _id: string
-  commentGroup: CommentGroup
-  commentContent: string
-  commentRefId: string
-  createdAt: string
-}
-
-type GetCommentsResponse = {
-  getComments: {
-    list: BackendComment[]
-  }
-}
-
-type GetCommentsVariables = {
-  input: {
-    page: number
-    limit: number
-    sort?: string
-    direction?: 'ASC' | 'DESC'
-    search: {
-      commentRefId: string
-    }
   }
 }
 
@@ -193,12 +166,28 @@ function buildDescriptionWithExtras(
     chunks.push(`Amenities: ${amenityText}`)
   }
 
-  if (sanatoriumMeta) {
-    const encoded = encodeURIComponent(JSON.stringify(sanatoriumMeta))
-    chunks.push(`${SANATORIUM_META_MARKER}${encoded}`)
+  const basePayload = chunks.filter(Boolean).join('\n\n')
+
+  if (!sanatoriumMeta) {
+    return basePayload
   }
 
-  return chunks.filter(Boolean).join('\n\n')
+  const compactMeta: CompactSanatoriumMeta = {
+    b: sanatoriumMeta.badge.trim(),
+    q: sanatoriumMeta.quote.trim(),
+    h: sanatoriumMeta.highlights.map((item) => [item.label.trim(), item.desc.trim()]),
+  }
+
+  const withMeta = [basePayload, `${SANATORIUM_META_MARKER}${JSON.stringify(compactMeta)}`]
+    .filter(Boolean)
+    .join('\n\n')
+
+  // Keep create flow stable with backend validator (`<= 500`) even for rich sanatorium metadata.
+  if (withMeta.length > PROPERTY_DESC_MAX_LENGTH) {
+    return basePayload
+  }
+
+  return withMeta
 }
 
 function getCookieValue(name: string): string {
@@ -344,76 +333,23 @@ export default function AgentProperties() {
     () => (propertiesData?.getProperties?.list || []).map(toLocalPropertyCard),
     [propertiesData],
   )
+  const propertyIds = useMemo(() => myProperties.map((property) => property.id), [myProperties])
+  const ratingsById = usePropertyRatings(propertyIds)
+  const myPropertiesWithDbRatings = useMemo(
+    () =>
+      myProperties.map((property) => {
+        const dbRating = ratingsById[property.id]
+        if (!dbRating) return property
 
-  const [ratingsById, setRatingsById] = useState<Record<string, { rating: number; reviews: number }>>({})
-  const fetchedRatingsRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    if (myProperties.length === 0) return
-
-    const idsToFetch = myProperties
-      .map((p) => p.id)
-      .filter((id) => !fetchedRatingsRef.current.has(id))
-
-    if (idsToFetch.length === 0) return
-    idsToFetch.forEach((id) => fetchedRatingsRef.current.add(id))
-
-    let cancelled = false
-
-    const fetchRatings = async () => {
-      const CONCURRENCY = 4
-      const queue = [...idsToFetch]
-
-      const worker = async () => {
-        while (queue.length > 0 && !cancelled) {
-          const propertyId = queue.shift()
-          if (!propertyId) break
-
-          try {
-            const { data: commentsData } = await apolloClient.query<GetCommentsResponse, GetCommentsVariables>({
-              query: GET_COMMENTS,
-              variables: {
-                input: {
-                  page: 1,
-                  limit: 50,
-                  sort: 'createdAt',
-                  direction: 'DESC',
-                  search: { commentRefId: propertyId },
-                },
-              },
-              fetchPolicy: 'network-only',
-            })
-
-            const list = commentsData?.getComments?.list ?? []
-            const ratings = list
-              .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === propertyId)
-              .map((c) => parseRoomiRatingFromCommentContent(c.commentContent))
-              .filter((r): r is number => r !== null)
-
-            if (ratings.length === 0) continue
-
-            const avg = ratings.reduce((sum, r) => sum + r, 0) / ratings.length
-            const ratingAvg = Math.round(avg * 10) / 10
-
-            setRatingsById((prev) => ({
-              ...prev,
-              [propertyId]: { rating: ratingAvg, reviews: ratings.length },
-            }))
-          } catch {
-            // ignore per-property failures
-          }
+        return {
+          ...property,
+          rating: dbRating.rating,
+          ratingCount: dbRating.ratingCount,
         }
-      }
+      }),
+    [myProperties, ratingsById],
+  )
 
-      await Promise.all(Array.from({ length: CONCURRENCY }, worker))
-    }
-
-    fetchRatings()
-
-    return () => {
-      cancelled = true
-    }
-  }, [myProperties])
   const mainPreviewImage = previewUrls[activePreviewIndex] || previewUrls[0] || ''
   const sidePreviewImages = previewUrls
     .map((image, index) => ({ image, index }))
@@ -562,6 +498,13 @@ export default function AgentProperties() {
             }
           : undefined
 
+      const propertyDescPayload = buildDescriptionWithExtras(propertyDesc, selectedAmenities, sanatoriumMeta)
+
+      if (propertyDescPayload.length > PROPERTY_DESC_MAX_LENGTH) {
+        setSubmitError(`Description must be ${PROPERTY_DESC_MAX_LENGTH} characters or fewer.`)
+        return
+      }
+
       const { data } = await createProperty({
 
         variables: {
@@ -575,7 +518,7 @@ export default function AgentProperties() {
             propertyBeds: numericBeds,
             propertyRooms: numericRooms,
             propertyImages: uploadedPaths,
-            propertyDesc: buildDescriptionWithExtras(propertyDesc, selectedAmenities, sanatoriumMeta),
+            propertyDesc: propertyDescPayload,
             propertyRent: true,
           },
         },
@@ -601,7 +544,7 @@ export default function AgentProperties() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="font-display text-2xl font-bold text-foreground">My Properties</h2>
-          <p className="text-sm text-muted-foreground mt-1">{myProperties.length} listings</p>
+          <p className="text-sm text-muted-foreground mt-1">{myPropertiesWithDbRatings.length} listings</p>
         </div>
         <button
           type="button"
@@ -919,11 +862,11 @@ export default function AgentProperties() {
           <p className="text-sm text-destructive">Failed to load properties: {propertiesError.message}</p>
         )}
 
-        {!propertiesLoading && !propertiesError && myProperties.length === 0 && (
+        {!propertiesLoading && !propertiesError && myPropertiesWithDbRatings.length === 0 && (
           <p className="text-sm text-muted-foreground">No properties found for this agent yet.</p>
         )}
 
-        {myProperties.map((p) => (
+        {myPropertiesWithDbRatings.map((p) => (
           <div key={p.id} className="bg-card border border-border rounded-2xl overflow-hidden">
             <div className="relative aspect-[16/9] overflow-hidden">
               <Link to={`/properties/${p.id}`} className="block h-full">
@@ -938,9 +881,15 @@ export default function AgentProperties() {
               <h3 className="font-display text-lg font-semibold text-foreground mb-2">{p.title}</h3>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 text-gold fill-gold" />
-                    <span className="text-sm font-medium text-foreground">{ratingsById[p.id]?.rating ?? p.rating}</span>
-                    <span className="text-xs text-muted-foreground">({ratingsById[p.id]?.reviews ?? p.reviews})</span>
+                    {p.ratingCount > 0 ? (
+                      <>
+                        <Star className="w-4 h-4 text-gold fill-gold" />
+                        <span className="text-sm font-medium text-foreground">{p.rating.toFixed(1)}</span>
+                        <span className="text-xs text-muted-foreground">({p.ratingCount} ta baho)</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground"></span>
+                    )}
                 </div>
                 <span className="font-semibold text-foreground">${p.price}/night</span>
               </div>

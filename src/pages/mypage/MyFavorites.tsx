@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useMemo } from 'react'
 import { useQuery } from '@apollo/client/react'
 import { Star, MapPin, Heart } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
-import { apolloClient } from '@/lib/apolloClient'
-import { CommentGroup } from '@/lib/client/enums/comment.enum'
+import { GET_PROPERTIES } from '@/graphql/user/query'
+import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 
 type ApiProperty = {
   _id: string
@@ -13,6 +12,7 @@ type ApiProperty = {
   propertyTitle: string
   propertyPrice: number
   propertyRank?: number
+  propertyRatingCount?: number
   propertyComments: number
   propertyImages: string[]
 }
@@ -23,7 +23,7 @@ type FavoriteProperty = {
   location: string
   price: number
   rating: number
-  reviews: number
+  ratingCount: number
   image: string
 }
 
@@ -84,44 +84,6 @@ function readLikedPropertyIds(): string[] {
   }
 }
 
-function parseRoomiRatingFromCommentContent(content: string): number | null {
-  const match = content?.match(/^ROOMi_RATING:(\d{1,2})\s*\r?\n/)
-  if (!match) return null
-  const parsed = Number(match[1])
-  if (!Number.isFinite(parsed)) return null
-  return Math.min(5, Math.max(1, parsed))
-}
-
-type BackendComment = {
-  _id: string
-  commentGroup: CommentGroup
-  commentContent: string
-  commentRefId: string
-  createdAt: string
-  memberData?: {
-    memberNick: string
-    memberFullName: string | null
-  } | null
-}
-
-type GetCommentsResponse = {
-  getComments: {
-    list: BackendComment[]
-  }
-}
-
-type GetCommentsVariables = {
-  input: {
-    page: number
-    limit: number
-    sort?: string
-    direction?: 'ASC' | 'DESC'
-    search: {
-      commentRefId: string
-    }
-  }
-}
-
 export default function MyFavorites() {
   const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
     variables: {
@@ -137,7 +99,7 @@ export default function MyFavorites() {
   })
 
   const likedIds = readLikedPropertyIds()
-  const favorites: FavoriteProperty[] = (data?.getProperties?.list || [])
+  const baseFavorites: FavoriteProperty[] = (data?.getProperties?.list || [])
     .filter((item) => likedIds.includes(item._id))
     .map((item) => ({
       id: item._id,
@@ -145,79 +107,26 @@ export default function MyFavorites() {
       location: formatLocation(item.propertyLocation),
       price: item.propertyPrice,
       rating: item.propertyRank || 0,
-      reviews: item.propertyComments || 0,
+      ratingCount: item.propertyRatingCount ?? item.propertyComments ?? 0,
       image: resolveImageUrl(item.propertyImages?.[0]),
     }))
 
-  const [ratingsById, setRatingsById] = useState<Record<string, { rating: number; reviews: number }>>({})
-  const fetchedRatingsRef = useRef<Set<string>>(new Set())
+  const propertyIds = useMemo(() => baseFavorites.map((property) => property.id), [baseFavorites])
+  const ratingsById = usePropertyRatings(propertyIds)
+  const favorites = useMemo(
+    () =>
+      baseFavorites.map((property) => {
+        const dbRating = ratingsById[property.id]
+        if (!dbRating) return property
 
-  useEffect(() => {
-    if (favorites.length === 0) return
-
-    const idsToFetch = favorites
-      .map((p) => p.id)
-      .filter((id) => !fetchedRatingsRef.current.has(id))
-
-    if (idsToFetch.length === 0) return
-    idsToFetch.forEach((id) => fetchedRatingsRef.current.add(id))
-
-    let cancelled = false
-
-    const fetchRatings = async () => {
-      const CONCURRENCY = 5
-      const queue = [...idsToFetch]
-
-      const worker = async () => {
-        while (queue.length > 0 && !cancelled) {
-          const propertyId = queue.shift()
-          if (!propertyId) break
-
-          try {
-            const { data: commentsData } = await apolloClient.query<GetCommentsResponse, GetCommentsVariables>({
-              query: GET_COMMENTS,
-              variables: {
-                input: {
-                  page: 1,
-                  limit: 50,
-                  sort: 'createdAt',
-                  direction: 'DESC',
-                  search: { commentRefId: propertyId },
-                },
-              },
-              fetchPolicy: 'network-only',
-            })
-
-            const list = commentsData?.getComments?.list ?? []
-            const ratings = list
-              .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === propertyId)
-              .map((c) => parseRoomiRatingFromCommentContent(c.commentContent))
-              .filter((r): r is number => r !== null)
-
-            if (ratings.length === 0) continue
-
-            const avg = ratings.reduce((sum, r) => sum + r, 0) / ratings.length
-            const ratingAvg = Math.round(avg * 10) / 10
-
-            setRatingsById((prev) => ({
-              ...prev,
-              [propertyId]: { rating: ratingAvg, reviews: ratings.length },
-            }))
-          } catch {
-            // ignore per-property errors
-          }
+        return {
+          ...property,
+          rating: dbRating.rating,
+          ratingCount: dbRating.ratingCount,
         }
-      }
-
-      await Promise.all(Array.from({ length: CONCURRENCY }, worker))
-    }
-
-    fetchRatings()
-
-    return () => {
-      cancelled = true
-    }
-  }, [favorites])
+      }),
+    [baseFavorites, ratingsById],
+  )
 
   return (
     <div>
@@ -249,11 +158,15 @@ export default function MyFavorites() {
                 <h3 className="font-display text-lg font-semibold text-foreground mb-2">{p.title}</h3>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1">
-                    <Star className="w-4 h-4 text-gold fill-gold" />
-                    <span className="text-sm font-medium text-foreground">
-                      {ratingsById[p.id]?.rating ?? p.rating}
-                    </span>
-                    <span className="text-xs text-muted-foreground">({ratingsById[p.id]?.reviews ?? p.reviews})</span>
+                    {p.ratingCount > 0 ? (
+                      <>
+                        <Star className="w-4 h-4 text-gold fill-gold" />
+                        <span className="text-sm font-medium text-foreground">{p.rating.toFixed(1)}</span>
+                        <span className="text-xs text-muted-foreground">({p.ratingCount} ta baho)</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground"></span>
+                    )}
                   </div>
                   <span className="font-semibold text-foreground">${p.price}/night</span>
                 </div>

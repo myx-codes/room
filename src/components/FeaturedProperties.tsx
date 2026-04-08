@@ -1,11 +1,10 @@
 import { motion, type Variants } from 'framer-motion'
 import { Star, Heart, MapPin, ArrowRight, ShieldCheck, Volume2, VolumeX, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@apollo/client/react'
 import { Link } from 'react-router-dom'
-import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
-import { apolloClient } from '@/lib/apolloClient'
-import { CommentGroup } from '@/lib/client/enums/comment.enum'
+import { GET_PROPERTIES } from '@/graphql/user/query'
+import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 
 const categories = [
   { title: "Exclusive Villas", type: "villa", sub: "Private Retreats", color: "text-amber-600", bg: "bg-amber-600" },
@@ -21,7 +20,7 @@ type FeaturedProperty = {
   location: string
   price: number
   rating: number
-  reviews: number
+  ratingCount: number
   image: string
   category: PropertyCategory
   sanatoriumMeta?: SanatoriumMeta
@@ -45,6 +44,7 @@ type GetPropertiesResponse = {
       propertyTitle: string
       propertyPrice: number
       propertyRank?: number
+      propertyRatingCount?: number
       propertyComments: number
       propertyImages: string[]
       propertyDesc?: string | null
@@ -105,28 +105,53 @@ function mapPropertyType(type: string): PropertyCategory {
 function parseSanatoriumMeta(description?: string | null): SanatoriumMeta | undefined {
   if (!description) return undefined
 
-  const match = description.match(/ROOMI_SANATORIUM_META:([^\n]+)/)
+  const match = description.match(new RegExp(`${SANATORIUM_META_MARKER}([^\\n]+)`))
   if (!match) return undefined
 
   try {
-    const decoded = decodeURIComponent(match[1])
-    const parsed = JSON.parse(decoded) as Partial<SanatoriumMeta>
-    const highlights = Array.isArray(parsed.highlights)
-      ? parsed.highlights
-          .map((item) => ({
-            label: String(item?.label || '').trim(),
-            desc: String(item?.desc || '').trim(),
-          }))
-          .filter((item) => item.label && item.desc)
-      : []
+    const raw = String(match[1] || '').trim()
 
-    if (!parsed.badge || !parsed.quote || highlights.length === 0) {
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      parsed = JSON.parse(decodeURIComponent(raw)) as Record<string, unknown>
+    }
+
+    const badgeCandidate = typeof parsed.badge === 'string' ? parsed.badge : typeof parsed.b === 'string' ? parsed.b : ''
+    const quoteCandidate = typeof parsed.quote === 'string' ? parsed.quote : typeof parsed.q === 'string' ? parsed.q : ''
+
+    const rawHighlights = Array.isArray(parsed.highlights)
+      ? parsed.highlights
+      : Array.isArray(parsed.h)
+        ? parsed.h.map((item) =>
+            Array.isArray(item)
+              ? { label: String(item[0] ?? ''), desc: String(item[1] ?? '') }
+              : item,
+          )
+        : []
+
+    const highlights = rawHighlights
+      .map((item) => {
+        if (item && typeof item === 'object') {
+          const record = item as Record<string, unknown>
+          return {
+            label: String(record.label || '').trim(),
+            desc: String(record.desc || '').trim(),
+          }
+        }
+
+        return { label: '', desc: '' }
+      })
+      .filter((item) => item.label && item.desc)
+
+    if (!badgeCandidate.trim() || !quoteCandidate.trim() || highlights.length === 0) {
       return undefined
     }
 
     return {
-      badge: String(parsed.badge),
-      quote: String(parsed.quote),
+      badge: badgeCandidate.trim(),
+      quote: quoteCandidate.trim(),
       highlights,
     }
   } catch {
@@ -149,44 +174,10 @@ function mapToFeaturedProperty(item: GetPropertiesResponse['getProperties']['lis
     location: formatLocation(item.propertyLocation),
     price: item.propertyPrice,
     rating: item.propertyRank || 0,
-    reviews: item.propertyComments || 0,
+    ratingCount: item.propertyRatingCount ?? item.propertyComments ?? 0,
     image: resolveImageUrl(item.propertyImages?.[0]),
     category: mapPropertyType(item.propertyType),
     sanatoriumMeta: parseSanatoriumMeta(item.propertyDesc),
-  }
-}
-
-function parseRoomiRatingFromCommentContent(content: string): number | null {
-  const match = content?.match(/^ROOMi_RATING:(\d{1,2})\s*\r?\n/)
-  if (!match) return null
-  const parsed = Number(match[1])
-  if (!Number.isFinite(parsed)) return null
-  return Math.min(5, Math.max(1, parsed))
-}
-
-type BackendComment = {
-  _id: string
-  commentGroup: CommentGroup
-  commentContent: string
-  commentRefId: string
-  createdAt: string
-}
-
-type GetCommentsResponse = {
-  getComments: {
-    list: BackendComment[]
-  }
-}
-
-type GetCommentsVariables = {
-  input: {
-    page: number
-    limit: number
-    sort?: string
-    direction?: 'ASC' | 'DESC'
-    search: {
-      commentRefId: string
-    }
   }
 }
 
@@ -215,70 +206,22 @@ export function FeaturedProperties() {
   })
 
   const allProperties = (data?.getProperties?.list || []).map(mapToFeaturedProperty)
+  const propertyIds = useMemo(() => allProperties.map((property) => property.id), [allProperties])
+  const ratingsById = usePropertyRatings(propertyIds)
+  const allPropertiesWithDbRatings = useMemo(
+    () =>
+      allProperties.map((property) => {
+        const dbRating = ratingsById[property.id]
+        if (!dbRating) return property
 
-  const [ratingsById, setRatingsById] = useState<Record<string, { rating: number; reviews: number }>>({})
-  const fetchedRatingsRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    if (allProperties.length === 0) return
-
-    const ids = categories
-      .flatMap((cat) => allProperties.filter((p) => p.category === cat.type).slice(0, 4).map((p) => p.id))
-      .filter(Boolean)
-
-    const idsToFetch = ids.filter((id) => !fetchedRatingsRef.current.has(id))
-    if (idsToFetch.length === 0) return
-
-    idsToFetch.forEach((id) => fetchedRatingsRef.current.add(id))
-
-    let cancelled = false
-
-    Promise.all(
-      idsToFetch.map(async (propertyId) => {
-        try {
-          const { data: commentsData } = await apolloClient.query<GetCommentsResponse, GetCommentsVariables>({
-            query: GET_COMMENTS,
-            variables: {
-              input: {
-                page: 1,
-                limit: 50,
-                sort: 'createdAt',
-                direction: 'DESC',
-                search: {
-                  commentRefId: propertyId,
-                },
-              },
-            },
-            fetchPolicy: 'network-only',
-          })
-
-          if (cancelled) return
-
-          const list = commentsData?.getComments?.list ?? []
-          const ratings = list
-            .filter((c) => c.commentGroup === CommentGroup.PROPERTY && c.commentRefId === propertyId)
-            .map((c) => parseRoomiRatingFromCommentContent(c.commentContent))
-            .filter((r): r is number => r !== null)
-
-          if (ratings.length === 0) return
-
-          const avg = ratings.reduce((sum, r) => sum + r, 0) / ratings.length
-          const ratingAvg = Math.round(avg * 10) / 10
-
-          setRatingsById((prev) => ({
-            ...prev,
-            [propertyId]: { rating: ratingAvg, reviews: ratings.length },
-          }))
-        } catch {
-          // Ignore per-property failures
+        return {
+          ...property,
+          rating: dbRating.rating,
+          ratingCount: dbRating.ratingCount,
         }
       }),
-    )
-
-    return () => {
-      cancelled = true
-    }
-  }, [allProperties])
+    [allProperties, ratingsById],
+  )
 
   return (
     <section id="featured" className="py-24 px-6 bg-[#fcfcfd] overflow-hidden">
@@ -287,14 +230,9 @@ export function FeaturedProperties() {
         {error && <p className="text-sm text-red-600">Failed to load properties: {error.message}</p>}
 
         {categories.map((cat) => {
-          const filteredProps = allProperties
+          const filteredProps = allPropertiesWithDbRatings
             .filter((p) => p.category === cat.type)
             .slice(0, 4)
-            .map((p) => ({
-              ...p,
-              rating: ratingsById[p.id]?.rating ?? p.rating,
-              reviews: ratingsById[p.id]?.reviews ?? p.reviews,
-            }))
 
           if (filteredProps.length === 0) return null;
 
@@ -485,7 +423,17 @@ function PropertyCard({ prop, index, compact = false }: { prop: FeaturedProperty
         <div className="flex items-center gap-1 text-slate-400 text-[10px] mb-2 font-bold uppercase tracking-widest"><MapPin className="w-3 h-3" /> {prop.location}</div>
         <h3 className="text-xl font-bold text-slate-900 mb-5 truncate group-hover:text-blue-600 transition-colors">{prop.title}</h3>
         <div className="flex items-center justify-between pt-5 border-t border-slate-50">
-          <div className="flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /><span className="text-sm font-bold">{prop.rating}</span></div>
+          <div className="flex items-center gap-1">
+            {prop.ratingCount > 0 ? (
+              <>
+                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                <span className="text-sm font-bold">{prop.rating.toFixed(1)}</span>
+                <span className="text-[10px] text-slate-400 font-medium">({prop.ratingCount} ta baho)</span>
+              </>
+            ) : (
+              <span className="text-[10px] text-slate-400 font-medium"></span>
+            )}
+          </div>
           <div className="text-right leading-none"><span className="text-xl font-bold">${prop.price}</span><span className="text-[10px] text-slate-400 ml-1 font-bold">/ NIGHT</span></div>
         </div>
       </div>

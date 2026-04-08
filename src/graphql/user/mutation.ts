@@ -67,6 +67,7 @@ mutation CreateComment($input: CommentInput!) {
         commentStatus
         commentGroup
         commentContent
+        commentStars
         commentRefId
         memberId
         createdAt
@@ -98,6 +99,17 @@ mutation CreateComment($input: CommentInput!) {
 }
 `
 ;
+
+export const UPDATE_COMMENT = gql `
+mutation UpdateComment($input: CommentUpdate!) {
+    updateComment(input: $input) {
+        _id
+        commentContent
+        commentStars
+        updatedAt
+    }
+}
+`;
 
 export const UPDATE_MEMBER = gql `
   mutation UpdateMember($input: MemberUpdate!) {

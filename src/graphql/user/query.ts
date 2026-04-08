@@ -83,6 +83,7 @@ export const GET_COMMENTS = gql`
         commentStatus
         commentGroup
         commentContent
+        commentStars
         commentRefId
         createdAt
         updatedAt

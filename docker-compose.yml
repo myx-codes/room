@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # --- FRONTEND (WEB APPLICATION) ---
+  roomi-frontend:
+    container_name: roomi-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Browser faqat frontend origin orqali ishlaydi; nginx backendga proxy qiladi.
+        VITE_GRAPHQL_URL: /graphql
+        VITE_UPLOADS_URL: /uploads
+        VITE_WS_URL: /socket.io
+        VITE_CSRF_URL: /csrf-token
+        INTERNAL_GRAPHQL_URL: http://roomi-api:3008/graphql
+    environment:
+      NODE_ENV: production
+      INTERNAL_GRAPHQL_URL: http://roomi-api:3008/graphql
+    ports:
+      - "80:80" # HTTP
+      - "443:443" # HTTPS
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    restart: unless-stopped
+    networks:
+      - roomi-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  roomi-net:
+    external: true

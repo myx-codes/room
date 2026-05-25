@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+build/
+.vite/
+.cache/
+coverage/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# TypeScript / tooling cache
+*.tsbuildinfo
+.eslintcache
+
+# Test / runtime temp files
+.nyc_output/
+.temp/
+.tmp/
+tmp/
+temp/
+pids/
+*.pid
+*.seed
+*.pid.lock
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Local certificates and private keys
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+certs/
+ssl/
+
+# Docker local overrides
+docker-compose.override.yml

@@ -207,6 +207,20 @@ mutation CreateBooking($input: BookingInput!) {
 }
 `
 
+export const LIKE_TARGET_PROPERTY = gql`
+  mutation LikeTargetProperty($propertyId: String!) {
+    likeTargetProperty(propertyId: $propertyId) {
+      _id
+      propertyLikes
+      meLiked {
+        memberId
+        likeRefId
+        myFavorite
+      }
+    }
+  }
+`
+
 /**************************
  *         AGENT          *
  *************************/
@@ -363,4 +377,3 @@ export const REMOVE_COMMENT_BY_ADMIN = gql`
         }
     }
 `
-

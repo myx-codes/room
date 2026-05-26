@@ -35,6 +35,11 @@ query GetProperties($input: PropertiesInquiry!) {
             constructedAt
             createdAt
             updatedAt
+            meLiked {
+              memberId
+              likeRefId
+              myFavorite
+            }
         }
         metaCounter {
             total
@@ -66,6 +71,45 @@ export const GET_FEATURED_PROPERTIES = gql`
         propertyComments
         propertyImages
         propertyDesc
+      }
+    }
+  }
+`
+
+export const GET_FAVORITES = gql`
+  query GetFavorites($input: OrdinaryInquiry!) {
+    getFavorites(input: $input) {
+      list {
+        _id
+        propertyType
+        propertyStatus
+        propertyLocation
+        propertyAddress
+        propertyTitle
+        propertyPrice
+        propertySquare
+        propertyBeds
+        propertyRooms
+        propertyViews
+        propertyLikes
+        propertyComments
+        propertyRank
+        propertyImages
+        propertyDesc
+        propertyRent
+        memberId
+        deletedAt
+        constructedAt
+        createdAt
+        updatedAt
+        meLiked {
+          memberId
+          likeRefId
+          myFavorite
+        }
+      }
+      metaCounter {
+        total
       }
     }
   }

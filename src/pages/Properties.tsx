@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { useQuery } from '@apollo/client/react'
+import { useMutation, useQuery } from '@apollo/client/react'
 import { Star, Heart, MapPin, SlidersHorizontal, X, Calendar } from 'lucide-react'
 import { format } from 'date-fns'
 import { amenityLabels } from '@/data/mockData'
+import { LIKE_TARGET_PROPERTY } from '@/graphql/user/mutation'
 import { GET_PROPERTIES } from '@/graphql/user/query'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
@@ -12,8 +13,7 @@ import { Navbar } from '@/components/Navbar'
 import { Footer } from '@/components/Footer'
 import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { useI18n } from '@/i18n'
-import { getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
-import { readLikedPropertyIds, writeLikedPropertyIds } from '@/lib/favorites'
+import { isAuthenticated } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import type { DateRange } from 'react-day-picker'
 
@@ -30,6 +30,11 @@ type ApiProperty = {
   propertyComments: number
   propertyImages: string[]
   propertyDesc?: string | null
+  meLiked?: Array<{
+    memberId: string
+    likeRefId: string
+    myFavorite: boolean
+  }> | null
 }
 
 type DisplayProperty = {
@@ -58,6 +63,16 @@ type GetPropertiesVariables = {
     direction?: 'ASC' | 'DESC'
     search: Record<string, never>
   }
+}
+
+type LikeTargetPropertyResponse = {
+  likeTargetProperty: {
+    _id: string
+  }
+}
+
+type LikeTargetPropertyVariables = {
+  propertyId: string
 }
 
 const GRAPHQL_URL =
@@ -161,7 +176,6 @@ export default function Properties() {
   const [showFilters, setShowFilters] = useState(false)
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'rating' | 'reviews'>('rating')
-  const [likedIds, setLikedIds] = useState<string[]>(readLikedPropertyIds)
 
   const categories: { label: string; value: PropertyCategory | 'all' }[] = [
     { label: t('common.all'), value: 'all' },
@@ -170,7 +184,7 @@ export default function Properties() {
     { label: t('categories.sanatoriumsTitle'), value: 'sanatorium' },
   ]
 
-  const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+  const { data, loading, error, refetch } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
     variables: {
       input: {
         page: 1,
@@ -182,6 +196,7 @@ export default function Properties() {
     },
     fetchPolicy: 'network-only',
   })
+  const [likeTargetProperty] = useMutation<LikeTargetPropertyResponse, LikeTargetPropertyVariables>(LIKE_TARGET_PROPERTY)
 
   const allProperties = useMemo(() => (data?.getProperties?.list || []).map(mapApiProperty), [data])
   const propertyIds = useMemo(() => allProperties.map((property) => property.id), [allProperties])
@@ -205,20 +220,13 @@ export default function Properties() {
     [allProperties, ratingsById],
   )
 
-  useEffect(() => {
-    writeLikedPropertyIds(likedIds)
-  }, [likedIds])
-
-  useEffect(() => {
-    const syncLikedIds = () => setLikedIds(readLikedPropertyIds())
-    const authEvent = getAuthChangedEventName()
-    window.addEventListener(authEvent, syncLikedIds)
-    window.addEventListener('storage', syncLikedIds)
-    return () => {
-      window.removeEventListener(authEvent, syncLikedIds)
-      window.removeEventListener('storage', syncLikedIds)
-    }
-  }, [])
+  const likedIds = useMemo(
+    () =>
+      (data?.getProperties?.list || [])
+        .filter((item) => item.meLiked?.some((like) => like.myFavorite))
+        .map((item) => item._id),
+    [data],
+  )
 
   const filtered = useMemo(() => {
     const result = allPropertiesWithDbRatings.filter((p) => {
@@ -247,12 +255,18 @@ export default function Properties() {
     setSelectedAmenities((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])
   }
 
-  const toggleLike = (id: string) => {
+  const toggleLike = async (id: string) => {
     if (!isAuthenticated()) {
       window.alert(t('common.signedInRequired'))
       return
     }
-    setLikedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+    try {
+      await likeTargetProperty({ variables: { propertyId: id } })
+      await refetch()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('common.failedToLoadFavorites', { message: '' })
+      window.alert(message)
+    }
   }
 
   return (

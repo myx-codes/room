@@ -4,6 +4,7 @@ import { ApolloProvider } from '@apollo/client/react'
 import App from './App.tsx'
 import { I18nProvider } from './i18n'
 import { apolloClient } from './lib/apolloClient'
+import { SocketProvider } from './providers/SocketProvider'
 import './index.css'
 
 type RuntimeErrorPayload = {
@@ -151,7 +152,9 @@ createRoot(document.getElementById('root')!).render(
   <RuntimeGuard>
     <I18nProvider>
       <ApolloProvider client={apolloClient}>
-        <App />
+        <SocketProvider>
+          <App />
+        </SocketProvider>
       </ApolloProvider>
     </I18nProvider>
   </RuntimeGuard>,

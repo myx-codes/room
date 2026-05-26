@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@apollo/client/react'
+import { useMemo } from 'react'
+import { useMutation, useQuery } from '@apollo/client/react'
 import { Star, MapPin, Heart } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { GET_PROPERTIES } from '@/graphql/user/query'
+import { LIKE_TARGET_PROPERTY } from '@/graphql/user/mutation'
+import { GET_FAVORITES } from '@/graphql/user/query'
 import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { useI18n } from '@/i18n'
-import { getAuthChangedEventName } from '@/lib/auth'
-import { readLikedPropertyIds, writeLikedPropertyIds } from '@/lib/favorites'
 
 type ApiProperty = {
   _id: string
@@ -30,20 +29,27 @@ type FavoriteProperty = {
   image: string
 }
 
-type GetPropertiesResponse = {
-  getProperties: {
+type GetFavoritesResponse = {
+  getFavorites: {
     list: ApiProperty[]
   }
 }
 
-type GetPropertiesVariables = {
+type GetFavoritesVariables = {
   input: {
     page: number
     limit: number
-    sort?: string
-    direction?: 'ASC' | 'DESC'
-    search: Record<string, never>
   }
+}
+
+type LikeTargetPropertyResponse = {
+  likeTargetProperty: {
+    _id: string
+  }
+}
+
+type LikeTargetPropertyVariables = {
+  propertyId: string
 }
 
 const GRAPHQL_URL =
@@ -86,44 +92,28 @@ function formatLocation(value: string): string {
 
 export default function MyFavorites() {
   const { t, formatNumber } = useI18n()
-  const [likedIds, setLikedIds] = useState<string[]>(readLikedPropertyIds)
-
-  const { data, loading, error } = useQuery<GetPropertiesResponse, GetPropertiesVariables>(GET_PROPERTIES, {
+  const { data, loading, error, refetch } = useQuery<GetFavoritesResponse, GetFavoritesVariables>(GET_FAVORITES, {
     variables: {
       input: {
         page: 1,
         limit: 200,
-        sort: 'createdAt',
-        direction: 'DESC',
-        search: {},
       },
     },
     fetchPolicy: 'network-only',
   })
+  const [likeTargetProperty] = useMutation<LikeTargetPropertyResponse, LikeTargetPropertyVariables>(LIKE_TARGET_PROPERTY)
 
-  useEffect(() => {
-    writeLikedPropertyIds(likedIds)
-  }, [likedIds])
-
-  useEffect(() => {
-    const syncLikedIds = () => setLikedIds(readLikedPropertyIds())
-    const authEvent = getAuthChangedEventName()
-    window.addEventListener(authEvent, syncLikedIds)
-    window.addEventListener('storage', syncLikedIds)
-    return () => {
-      window.removeEventListener(authEvent, syncLikedIds)
-      window.removeEventListener('storage', syncLikedIds)
+  const toggleLike = async (propertyId: string) => {
+    try {
+      await likeTargetProperty({ variables: { propertyId } })
+      await refetch()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : t('common.failedToLoadFavorites', { message: '' })
+      window.alert(message)
     }
-  }, [])
-
-  const toggleLike = (propertyId: string) => {
-    setLikedIds((prev) =>
-      prev.includes(propertyId) ? prev.filter((id) => id !== propertyId) : [...prev, propertyId],
-    )
   }
 
-  const baseFavorites: FavoriteProperty[] = (data?.getProperties?.list || [])
-    .filter((item) => likedIds.includes(item._id))
+  const baseFavorites: FavoriteProperty[] = (data?.getFavorites?.list || [])
     .map((item) => ({
       id: item._id,
       title: item.propertyTitle,

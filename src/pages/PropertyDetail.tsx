@@ -12,7 +12,6 @@ import { useEffect, useMemo, useState, type ElementType, type FC, type FormEvent
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMutation, useQuery } from '@apollo/client/react'
-import Swal from 'sweetalert2'
 import {
   Star,
   MapPin,
@@ -1031,7 +1030,7 @@ const BookingSidebar: FC<BookingSidebarProps> = ({
 
         {/* Review button */}
         <Button type="button" onClick={onReviewBooking} className="w-full h-12 text-base">
-          {t('common.reviewBooking')}
+          {t('Booking')}
         </Button>
 
         {/* Error message */}
@@ -1334,8 +1333,22 @@ export default function PropertyDetail(): JSX.Element {
   const handleReviewBooking = () => {
     setBookingError('')
 
+    if (!isAuthenticated()) {
+      const message = t('common.signedInRequired')
+      setBookingError(message)
+      window.alert(message)
+      return
+    }
+
     const cards = readSavedCards()
     setSavedCards(cards)
+    if (cards.length === 0) {
+      const message = t('propertyDetail.noSavedCardFound')
+      setBookingError(message)
+      window.alert(message)
+      navigate('/my-page/payments')
+      return
+    }
 
     if (cards.length === 1) {
       setSelectedCardId(cards[0].id)
@@ -1344,11 +1357,6 @@ export default function PropertyDetail(): JSX.Element {
     }
 
     setShowBookingReview(true)
-
-    if (!isAuthenticated()) {
-      setBookingError(t('propertyDetail.signInToBook'))
-      return
-    }
 
     if (!checkInDate || !checkOutDate) {
       setBookingError(t('propertyDetail.selectDates'))
@@ -1367,7 +1375,9 @@ export default function PropertyDetail(): JSX.Element {
     setBookingError('')
 
     if (!isAuthenticated()) {
-      setBookingError(t('propertyDetail.signInToBook'))
+      const message = t('common.signedInRequired')
+      setBookingError(message)
+      window.alert(message)
       return
     }
 
@@ -1378,7 +1388,10 @@ export default function PropertyDetail(): JSX.Element {
     }
 
     if (savedCards.length === 0) {
-      setBookingError(t('propertyDetail.noSavedCardFound'))
+      const message = t('propertyDetail.noSavedCardFound')
+      setBookingError(message)
+      window.alert(message)
+      navigate('/my-page/payments')
       return
     }
 
@@ -1403,31 +1416,16 @@ export default function PropertyDetail(): JSX.Element {
       if (!bookingData?.createBooking?._id) {
         const errorMessage = t('propertyDetail.bookingNotCreated')
         setBookingError(errorMessage)
-        await Swal.fire({
-          icon: 'error',
-          title: t('propertyDetail.bookingFailed'),
-          text: errorMessage,
-          confirmButtonText: 'OK',
-        })
+        window.alert(`${t('propertyDetail.bookingFailed')}: ${errorMessage}`)
         return
       }
 
       setShowBookingReview(false)
-      await Swal.fire({
-        icon: 'success',
-        title: t('propertyDetail.bookedSuccessfully'),
-        text: t('propertyDetail.bookingCreated'),
-        confirmButtonText: t('propertyDetail.great'),
-      })
+      window.alert(`${t('propertyDetail.bookedSuccessfully')}: ${t('propertyDetail.bookingCreated')}`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t('propertyDetail.failedToCreateBooking')
       setBookingError(errorMessage)
-      await Swal.fire({
-        icon: 'error',
-        title: t('propertyDetail.bookingFailed'),
-        text: errorMessage,
-        confirmButtonText: 'OK',
-      })
+      window.alert(`${t('propertyDetail.bookingFailed')}: ${errorMessage}`)
     }
   }
 

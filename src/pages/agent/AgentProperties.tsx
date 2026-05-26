@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@apollo/client/react'
-import Swal from 'sweetalert2'
 import { Star, MapPin, Pencil, Plus, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CREATE_PROPERTY, UPDATE_PROPERTY } from '@/graphql/user/mutation'
@@ -947,12 +946,7 @@ export default function AgentProperties() {
       if (!data?.createProperty?._id) {
         const message = t('agent.listingNotCreated')
         setSubmitError(message)
-        await Swal.fire({
-          icon: 'error',
-          title: t('agent.addListingFailureTitle'),
-          text: message,
-          confirmButtonText: 'OK',
-        })
+        window.alert(`${t('agent.addListingFailureTitle')}: ${message}`)
         return
       }
 
@@ -960,21 +954,11 @@ export default function AgentProperties() {
       setSubmitSuccess(t('agent.createSuccess'))
       resetForm()
       setIsAddOpen(false)
-      await Swal.fire({
-        icon: 'success',
-        title: t('agent.addListingSuccessTitle'),
-        text: t('agent.createLive'),
-        confirmButtonText: 'Great',
-      })
+      window.alert(`${t('agent.addListingSuccessTitle')}: ${t('agent.createLive')}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : t('agent.listingCreateError')
       setSubmitError(message)
-      await Swal.fire({
-        icon: 'error',
-        title: t('agent.addListingFailureTitle'),
-        text: message,
-        confirmButtonText: 'OK',
-      })
+      window.alert(`${t('agent.addListingFailureTitle')}: ${message}`)
     }
   }
 
@@ -1123,33 +1107,18 @@ export default function AgentProperties() {
       if (!data?.updateProperty?._id) {
         const message = t('agent.listingNotUpdated')
         setSubmitError(message)
-        await Swal.fire({
-          icon: 'error',
-          title: t('agent.saveChangesFailureTitle'),
-          text: message,
-          confirmButtonText: 'OK',
-        })
+        window.alert(`${t('agent.saveChangesFailureTitle')}: ${message}`)
         return
       }
 
       await refetchProperties()
       setSubmitSuccess(t('agent.updateSuccess'))
       closeEditForm()
-      await Swal.fire({
-        icon: 'success',
-        title: t('agent.saveChangesTitle'),
-        text: t('agent.updateLive'),
-        confirmButtonText: 'Great',
-      })
+      window.alert(`${t('agent.saveChangesTitle')}: ${t('agent.updateLive')}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : t('agent.listingUpdateError')
       setSubmitError(message)
-      await Swal.fire({
-        icon: 'error',
-        title: t('agent.saveChangesFailureTitle'),
-        text: message,
-        confirmButtonText: 'OK',
-      })
+      window.alert(`${t('agent.saveChangesFailureTitle')}: ${message}`)
     } finally {
       setEditingPropertyId(null)
     }

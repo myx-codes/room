@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@apollo/client/react'
-import Swal from 'sweetalert2'
 import { CheckCircle, Clock, XCircle, CircleDot, MapPin } from 'lucide-react'
 import { GET_MY_BOOKINGS, GET_PROPERTIES } from '@/graphql/user/query'
 import { useI18n } from '@/i18n'
@@ -220,57 +219,28 @@ export default function MyBookings() {
   const cancelBooking = (bookingId: string, bookingStatus: BookingStatus, checkInRaw?: string | null) => {
     if (!canCancelBooking(bookingStatus, checkInRaw)) {
       const message = t('myPage.cancelAllowedUntil')
-      void Swal.fire({
-        icon: 'error',
-        title: t('myPage.cannotCancelBooking'),
-        text: message,
-        confirmButtonText: 'OK',
-      })
+      window.alert(`${t('myPage.cannotCancelBooking')}: ${message}`)
       return
     }
 
     setLocallyCancelledBookingIds((prev) => (prev.includes(bookingId) ? prev : [...prev, bookingId]))
-    void Swal.fire({
-      icon: 'success',
-      title: t('myPage.cancelledSuccessfully'),
-      text: t('myPage.bookingCancelled'),
-      confirmButtonText: 'OK',
-    })
+    window.alert(`${t('myPage.cancelledSuccessfully')}: ${t('myPage.bookingCancelled')}`)
   }
 
   const deleteBooking = async (bookingId: string, bookingStatus: BookingStatus, checkInRaw?: string | null) => {
     if (!canDeleteBooking(bookingStatus, checkInRaw)) {
       const message = t('myPage.deleteAllowed')
-      await Swal.fire({
-        icon: 'error',
-        title: t('myPage.cannotDeleteBooking'),
-        text: message,
-        confirmButtonText: 'OK',
-      })
+      window.alert(`${t('myPage.cannotDeleteBooking')}: ${message}`)
       return
     }
 
-    const confirmation = await Swal.fire({
-      icon: 'warning',
-      title: t('myPage.deleteBookingTitle'),
-      text: t('myPage.deleteBookingText'),
-      showCancelButton: true,
-      confirmButtonText: t('myPage.confirmDelete'),
-      cancelButtonText: t('myPage.keepBooking'),
-      confirmButtonColor: '#dc2626',
-    })
-
-    if (!confirmation.isConfirmed) return
+    const confirmation = window.confirm(`${t('myPage.deleteBookingTitle')}\n\n${t('myPage.deleteBookingText')}`)
+    if (!confirmation) return
 
     setLocallyDeletedBookingIds((prev) => (prev.includes(bookingId) ? prev : [...prev, bookingId]))
     setLocallyCancelledBookingIds((prev) => prev.filter((id) => id !== bookingId))
 
-    await Swal.fire({
-      icon: 'success',
-      title: t('myPage.cancelledSuccessfully'),
-      text: t('myPage.bookingDeleteSuccess'),
-      confirmButtonText: 'OK',
-    })
+    window.alert(`${t('myPage.cancelledSuccessfully')}: ${t('myPage.bookingDeleteSuccess')}`)
   }
 
   const myBookings = useMemo(

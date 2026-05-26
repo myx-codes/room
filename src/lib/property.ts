@@ -31,7 +31,7 @@ export function getBackendOrigin(): string {
     return new URL(GRAPHQL_URL).origin
   } catch {
     return typeof window !== 'undefined'
-      ? window.location.origin
+      ? `${window.location.protocol}//${window.location.hostname}:3008`
       : 'http://localhost:3008'
   }
 }

@@ -12,6 +12,8 @@ import { Navbar } from '@/components/Navbar'
 import { Footer } from '@/components/Footer'
 import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { useI18n } from '@/i18n'
+import { getAuthChangedEventName, isAuthenticated } from '@/lib/auth'
+import { readLikedPropertyIds, writeLikedPropertyIds } from '@/lib/favorites'
 import { cn } from '@/lib/utils'
 import type { DateRange } from 'react-day-picker'
 
@@ -57,8 +59,6 @@ type GetPropertiesVariables = {
     search: Record<string, never>
   }
 }
-
-const LIKED_PROPERTIES_KEY = 'roomi_liked_properties'
 
 const GRAPHQL_URL =
   import.meta.env.VITE_GRAPHQL_URL ||
@@ -144,18 +144,6 @@ function mapApiProperty(item: ApiProperty): DisplayProperty {
   }
 }
 
-function readLikedPropertyIds(): string[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(LIKED_PROPERTIES_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
-  } catch {
-    return []
-  }
-}
-
 const amenityOptions = Object.keys(amenityLabels)
 
 export default function Properties() {
@@ -218,9 +206,19 @@ export default function Properties() {
   )
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(LIKED_PROPERTIES_KEY, JSON.stringify(likedIds))
+    writeLikedPropertyIds(likedIds)
   }, [likedIds])
+
+  useEffect(() => {
+    const syncLikedIds = () => setLikedIds(readLikedPropertyIds())
+    const authEvent = getAuthChangedEventName()
+    window.addEventListener(authEvent, syncLikedIds)
+    window.addEventListener('storage', syncLikedIds)
+    return () => {
+      window.removeEventListener(authEvent, syncLikedIds)
+      window.removeEventListener('storage', syncLikedIds)
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     const result = allPropertiesWithDbRatings.filter((p) => {
@@ -250,6 +248,10 @@ export default function Properties() {
   }
 
   const toggleLike = (id: string) => {
+    if (!isAuthenticated()) {
+      window.alert(t('common.signedInRequired'))
+      return
+    }
     setLikedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 

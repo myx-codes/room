@@ -45,6 +45,7 @@ export function Hero() {
 
   const handleSearch = () => {
     const params = new URLSearchParams()
+    
     if (location) params.set('location', location)
     navigate(`/properties?${params.toString()}`)
   }

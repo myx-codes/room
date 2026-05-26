@@ -23,6 +23,7 @@ import { Link } from 'react-router-dom'
 import { ScrollSafeVideo } from '@/components/ScrollSafeVideo'
 import { GET_FEATURED_PROPERTIES } from '@/graphql/user/query'
 import { useI18n } from '@/i18n'
+import { isAuthenticated } from '@/lib/auth'
 
 // -----------------------------------------------------------------------------
 // ENUMS
@@ -532,6 +533,14 @@ const PropertyCard: FC<PropertyCardProps> = ({ property, index, compact = false 
 
   const aspectClasses = compact ? 'aspect-[16/10]' : 'aspect-[16/11]'
 
+  const handleToggleLike = () => {
+    if (!isAuthenticated()) {
+      window.alert(t('common.signedInRequired'))
+      return
+    }
+    setIsLiked(!isLiked)
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -553,7 +562,7 @@ const PropertyCard: FC<PropertyCardProps> = ({ property, index, compact = false 
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
           loading="lazy"
         />
-        <LikeButton isLiked={isLiked} onToggle={() => setIsLiked(!isLiked)} />
+        <LikeButton isLiked={isLiked} onToggle={handleToggleLike} />
         <CategoryBadge category={property.category} />
       </div>
 

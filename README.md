@@ -71,3 +71,21 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+
+Commands to run ROOMi project
+
+# bir marta bo'ladi, network yo'q bo'lsa
+docker network create web
+
+# shared edge proxy
+cd /home/muhammad95/infra/nginx
+docker-compose up -d
+
+# ROOMi backend
+cd /home/muhammad95/ROOMi/backend/ROOMi
+docker-compose up -d
+
+# ROOMi frontend
+cd /home/muhammad95/ROOMi/frontend/roomi
+docker-compose up -d

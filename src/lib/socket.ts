@@ -6,9 +6,29 @@ const GRAPHQL_URL =
     ? `${window.location.protocol}//${window.location.hostname}:3008/graphql`
     : 'http://localhost:3008/graphql')
 
+function resolveExplicitWsUrl(explicitWsUrl: string): string {
+  const trimmedUrl = explicitWsUrl.trim()
+
+  if (trimmedUrl.startsWith('/')) {
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3008'
+    return `${protocol}://${host}${trimmedUrl}`.replace(/\/$/, '')
+  }
+
+  try {
+    const url = new URL(trimmedUrl)
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    }
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return trimmedUrl.replace(/\/$/, '')
+  }
+}
+
 function getWsBaseUrl(): string {
   const explicitWsUrl = (import.meta.env.VITE_WS_URL as string | undefined)?.trim()
-  if (explicitWsUrl) return explicitWsUrl
+  if (explicitWsUrl) return resolveExplicitWsUrl(explicitWsUrl)
 
   const graphqlBase = GRAPHQL_URL.replace(/\/graphql\/?$/, '')
 
@@ -32,4 +52,3 @@ export function buildSocketUrl(): string {
   const separator = base.includes('?') ? '&' : '?'
   return `${base}${separator}token=${encodeURIComponent(token)}`
 }
-

@@ -241,6 +241,11 @@ mutation CreateProperty($input: PropertyInput!) {
         propertyAddress
         propertyTitle
         propertyPrice
+        dynamicPricingEnabled
+        weekendMultiplier
+        minMultiplier
+        maxMultiplier
+        manualMultiplierOverride
         propertySquare
         propertyBeds
         propertyRooms
@@ -293,6 +298,11 @@ mutation UpdateMyProperty($input: PropertyUpdate!) {
         _id
         propertyTitle
         propertyPrice
+        dynamicPricingEnabled
+        weekendMultiplier
+        minMultiplier
+        maxMultiplier
+        manualMultiplierOverride
         propertyStatus
         propertyImages
         updatedAt

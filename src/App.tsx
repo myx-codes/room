@@ -6,6 +6,7 @@ import { Categories } from './components/Categories'
 import { HowItWorks } from './components/HowItWorks'
 import { CTA } from './components/CTA'
 import { Footer } from './components/Footer'
+import { ChatbotWidget } from './components/ChatbotWidget'
 
 const FeaturedProperties = lazy(() => import('./components/FeaturedProperties'))
 const SignIn = lazy(() => import('./pages/SignIn'))
@@ -105,6 +106,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Suspense fallback={<RouteFallback />}>
+        <ChatbotWidget />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/sign-in" element={<SignIn />} />

@@ -20,6 +20,11 @@ type CreatedProperty = {
   propertyAddress?: string
   propertyTitle: string
   propertyPrice: number
+  dynamicPricingEnabled?: boolean | null
+  weekendMultiplier?: number | null
+  minMultiplier?: number | null
+  maxMultiplier?: number | null
+  manualMultiplierOverride?: number | null
   propertySquare?: number
   propertyBeds?: number
   propertyRooms?: number
@@ -42,6 +47,11 @@ type CreatePropertyVariables = {
     propertyAddress: string
     propertyTitle: string
     propertyPrice: number
+    dynamicPricingEnabled?: boolean
+    weekendMultiplier?: number
+    minMultiplier?: number
+    maxMultiplier?: number
+    manualMultiplierOverride?: number | null
     propertySquare: number
     propertyBeds: number
     propertyRooms: number
@@ -70,6 +80,11 @@ type UpdatePropertyVariables = {
     propertyAddress?: string
     propertyTitle?: string
     propertyPrice?: number
+    dynamicPricingEnabled?: boolean
+    weekendMultiplier?: number
+    minMultiplier?: number
+    maxMultiplier?: number
+    manualMultiplierOverride?: number | null
     propertySquare?: number
     propertyBeds?: number
     propertyRooms?: number
@@ -86,6 +101,11 @@ type EditListingForm = {
   propertyAddress: string
   propertyTitle: string
   propertyPrice: string
+  dynamicPricingEnabled: boolean
+  weekendMultiplier: string
+  minMultiplier: string
+  maxMultiplier: string
+  manualMultiplierOverride: string
   propertySquare: string
   propertyBeds: string
   propertyRooms: string
@@ -539,6 +559,11 @@ export default function AgentProperties() {
   const [propertyLocation, setPropertyLocation] = useState('')
   const [propertyAddress, setPropertyAddress] = useState('')
   const [propertyPrice, setPropertyPrice] = useState('')
+  const [dynamicPricingEnabled, setDynamicPricingEnabled] = useState(true)
+  const [weekendMultiplier, setWeekendMultiplier] = useState('1.22')
+  const [minMultiplier, setMinMultiplier] = useState('0.85')
+  const [maxMultiplier, setMaxMultiplier] = useState('1.8')
+  const [manualMultiplierOverride, setManualMultiplierOverride] = useState('')
   const [propertySquare, setPropertySquare] = useState('')
   const [propertyBeds, setPropertyBeds] = useState('')
   const [propertyRooms, setPropertyRooms] = useState('')
@@ -603,9 +628,37 @@ export default function AgentProperties() {
           rating: dbRating.rating,
           ratingCount: dbRating.ratingCount,
         }
-      }),
+    }),
     [myProperties, ratingsById],
   )
+
+  const propertyOverview = useMemo(() => {
+    const total = myPropertiesWithDbRatings.length
+    const active = sourcePropertiesById
+      ? Object.values(sourcePropertiesById).filter((item) => normalizePropertyStatusForForm(item.propertyStatus) === 'ACTIVE').length
+      : 0
+    const hold = sourcePropertiesById
+      ? Object.values(sourcePropertiesById).filter((item) => normalizePropertyStatusForForm(item.propertyStatus) === 'HOLD').length
+      : 0
+    const booked = sourcePropertiesById
+      ? Object.values(sourcePropertiesById).filter((item) => normalizePropertyStatusForForm(item.propertyStatus) === 'BOOKED').length
+      : 0
+    const dynamicPricing = sourcePropertiesById
+      ? Object.values(sourcePropertiesById).filter((item) => item.dynamicPricingEnabled !== false).length
+      : 0
+    const averagePrice = total
+      ? Math.round(myPropertiesWithDbRatings.reduce((sum, item) => sum + Number(item.price || 0), 0) / total)
+      : 0
+
+    return {
+      total,
+      active,
+      hold,
+      booked,
+      dynamicPricing,
+      averagePrice,
+    }
+  }, [myPropertiesWithDbRatings, sourcePropertiesById])
 
   const filteredSortedProperties = useMemo(() => {
     const sorted = [...myPropertiesWithDbRatings].sort(
@@ -676,6 +729,11 @@ export default function AgentProperties() {
     setPropertyLocation('')
     setPropertyAddress('')
     setPropertyPrice('')
+    setDynamicPricingEnabled(true)
+    setWeekendMultiplier('1.22')
+    setMinMultiplier('0.85')
+    setMaxMultiplier('1.8')
+    setManualMultiplierOverride('')
     setPropertySquare('')
     setPropertyBeds('')
     setPropertyRooms('')
@@ -859,6 +917,10 @@ export default function AgentProperties() {
     setSubmitSuccess('')
 
     const numericPrice = Number(propertyPrice)
+    const numericWeekendMultiplier = Number(weekendMultiplier)
+    const numericMinMultiplier = Number(minMultiplier)
+    const numericMaxMultiplier = Number(maxMultiplier)
+    const numericManualOverride = manualMultiplierOverride.trim() ? Number(manualMultiplierOverride) : undefined
     const numericSquare = Number(propertySquare)
     const numericBeds = Number(propertyBeds)
     const numericRooms = Number(propertyRooms)
@@ -889,7 +951,16 @@ export default function AgentProperties() {
       return
     }
 
-    if ([numericPrice, numericSquare, numericBeds, numericRooms].some((value) => Number.isNaN(value) || value <= 0)) {
+    if (
+      [numericPrice, numericSquare, numericBeds, numericRooms].some((value) => Number.isNaN(value) || value <= 0) ||
+      [numericWeekendMultiplier, numericMinMultiplier, numericMaxMultiplier].some((value) => Number.isNaN(value) || value <= 0) ||
+      (numericManualOverride !== undefined && (Number.isNaN(numericManualOverride) || numericManualOverride <= 0))
+    ) {
+      setSubmitError(t('agent.positiveNumbers'))
+      return
+    }
+
+    if (numericMinMultiplier > numericMaxMultiplier) {
       setSubmitError(t('agent.positiveNumbers'))
       return
     }
@@ -934,6 +1005,11 @@ export default function AgentProperties() {
             propertyLocation: propertyLocation.trim(),
             propertyAddress: propertyAddress.trim(),
             propertyPrice: numericPrice,
+            dynamicPricingEnabled,
+            weekendMultiplier: numericWeekendMultiplier,
+            minMultiplier: numericMinMultiplier,
+            maxMultiplier: numericMaxMultiplier,
+            manualMultiplierOverride: numericManualOverride,
             propertySquare: numericSquare,
             propertyBeds: numericBeds,
             propertyRooms: numericRooms,
@@ -993,6 +1069,11 @@ export default function AgentProperties() {
       propertyAddress: property.propertyAddress || '',
       propertyTitle: property.propertyTitle || '',
       propertyPrice: String(property.propertyPrice || ''),
+      dynamicPricingEnabled: property.dynamicPricingEnabled ?? true,
+      weekendMultiplier: String(property.weekendMultiplier ?? 1.22),
+      minMultiplier: String(property.minMultiplier ?? 0.85),
+      maxMultiplier: String(property.maxMultiplier ?? 1.8),
+      manualMultiplierOverride: property.manualMultiplierOverride != null ? String(property.manualMultiplierOverride) : '',
       propertySquare: String(property.propertySquare || ''),
       propertyBeds: String(property.propertyBeds || ''),
       propertyRooms: String(property.propertyRooms || ''),
@@ -1009,6 +1090,12 @@ export default function AgentProperties() {
     setSubmitSuccess('')
 
     const numericPrice = Number(editForm.propertyPrice)
+    const numericWeekendMultiplier = Number(editForm.weekendMultiplier)
+    const numericMinMultiplier = Number(editForm.minMultiplier)
+    const numericMaxMultiplier = Number(editForm.maxMultiplier)
+    const numericManualOverride = editForm.manualMultiplierOverride.trim()
+      ? Number(editForm.manualMultiplierOverride)
+      : undefined
     const numericSquare = Number(editForm.propertySquare)
     const numericBeds = Number(editForm.propertyBeds)
     const numericRooms = Number(editForm.propertyRooms)
@@ -1019,7 +1106,16 @@ export default function AgentProperties() {
       return
     }
 
-    if ([numericPrice, numericSquare, numericBeds, numericRooms].some((value) => Number.isNaN(value) || value <= 0)) {
+    if (
+      [numericPrice, numericSquare, numericBeds, numericRooms].some((value) => Number.isNaN(value) || value <= 0) ||
+      [numericWeekendMultiplier, numericMinMultiplier, numericMaxMultiplier].some((value) => Number.isNaN(value) || value <= 0) ||
+      (numericManualOverride !== undefined && (Number.isNaN(numericManualOverride) || numericManualOverride <= 0))
+    ) {
+      setSubmitError(t('agent.positiveNumbers'))
+      return
+    }
+
+    if (numericMinMultiplier > numericMaxMultiplier) {
       setSubmitError(t('agent.positiveNumbers'))
       return
     }
@@ -1095,6 +1191,11 @@ export default function AgentProperties() {
             propertyAddress: editForm.propertyAddress.trim(),
             propertyTitle: editForm.propertyTitle.trim(),
             propertyPrice: numericPrice,
+            dynamicPricingEnabled: editForm.dynamicPricingEnabled,
+            weekendMultiplier: numericWeekendMultiplier,
+            minMultiplier: numericMinMultiplier,
+            maxMultiplier: numericMaxMultiplier,
+            manualMultiplierOverride: numericManualOverride,
             propertySquare: numericSquare,
             propertyBeds: numericBeds,
             propertyRooms: numericRooms,
@@ -1144,6 +1245,29 @@ export default function AgentProperties() {
           <Plus className="w-4 h-4" />
           {t('common.addListing')}
         </button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5 mb-6">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">{t('common.properties')}</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(propertyOverview.total)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">{propertyStatusLabel('ACTIVE')}</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(propertyOverview.active)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">{propertyStatusLabel('HOLD')}</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(propertyOverview.hold)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Dynamic pricing</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(propertyOverview.dynamicPricing)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Avg price</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">${formatNumber(propertyOverview.averagePrice)}</p>
+        </div>
       </div>
 
       {isAddOpen && (
@@ -1212,6 +1336,72 @@ export default function AgentProperties() {
                 onChange={(e) => setPropertyPrice(e.target.value)}
                 className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
               />
+            </div>
+
+            <div className="md:col-span-2 rounded-2xl border border-border bg-muted/30 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{t('agent.dynamicPricingTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('agent.dynamicPricingHint')}</p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={dynamicPricingEnabled}
+                    onChange={(e) => setDynamicPricingEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  {t('agent.enabled')}
+                </label>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.weekendMultiplier')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={weekendMultiplier}
+                    onChange={(e) => setWeekendMultiplier(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.minMultiplier')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={minMultiplier}
+                    onChange={(e) => setMinMultiplier(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.maxMultiplier')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={maxMultiplier}
+                    onChange={(e) => setMaxMultiplier(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.manualMultiplierOverride')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={manualMultiplierOverride}
+                    onChange={(e) => setManualMultiplierOverride(e.target.value)}
+                    placeholder={t('agent.optional')}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              </div>
             </div>
 
             <div>
@@ -1516,6 +1706,82 @@ export default function AgentProperties() {
                 onChange={(e) => setEditForm((prev) => (prev ? { ...prev, propertyPrice: e.target.value } : prev))}
                 className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm outline-none"
               />
+            </div>
+
+            <div className="md:col-span-2 rounded-2xl border border-border bg-muted/30 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{t('agent.dynamicPricingTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('agent.dynamicPricingHint')}</p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={editForm.dynamicPricingEnabled}
+                    onChange={(e) =>
+                      setEditForm((prev) => (prev ? { ...prev, dynamicPricingEnabled: e.target.checked } : prev))
+                    }
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  {t('agent.enabled')}
+                </label>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.weekendMultiplier')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={editForm.weekendMultiplier}
+                    onChange={(e) =>
+                      setEditForm((prev) => (prev ? { ...prev, weekendMultiplier: e.target.value } : prev))
+                    }
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.minMultiplier')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={editForm.minMultiplier}
+                    onChange={(e) =>
+                      setEditForm((prev) => (prev ? { ...prev, minMultiplier: e.target.value } : prev))
+                    }
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.maxMultiplier')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={editForm.maxMultiplier}
+                    onChange={(e) =>
+                      setEditForm((prev) => (prev ? { ...prev, maxMultiplier: e.target.value } : prev))
+                    }
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">{t('agent.manualMultiplierOverride')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    value={editForm.manualMultiplierOverride}
+                    onChange={(e) =>
+                      setEditForm((prev) => (prev ? { ...prev, manualMultiplierOverride: e.target.value } : prev))
+                    }
+                    placeholder={t('agent.optional')}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm outline-none"
+                  />
+                </div>
+              </div>
             </div>
 
             <div>

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@apollo/client/react'
-import { CheckCircle, Clock, XCircle, CircleDot } from 'lucide-react'
+import { CheckCircle, Clock, XCircle, CircleDot, Filter } from 'lucide-react'
 import { GET_BOOKINGS_FOR_MY_PROPERTIES } from '@/graphql/user/query'
 import { useI18n } from '@/i18n'
 
@@ -63,6 +64,7 @@ function resolveTotal(metaCounter?: TotalCounter[] | TotalCounter | null): numbe
 
 export default function AgentBookings() {
   const { t, formatDate, formatNumber, bookingStatusShortLabel } = useI18n()
+  const [statusFilter, setStatusFilter] = useState<'ALL' | BookingStatus>('ALL')
   const { data, loading, error } = useQuery<
     GetBookingsForMyPropertiesResponse,
     GetBookingsForMyPropertiesVariables
@@ -76,7 +78,7 @@ export default function AgentBookings() {
     fetchPolicy: 'network-only',
   })
 
-  const myBookings = useMemo(() => {
+  const allBookings = useMemo(() => {
     return (data?.getBookingsForMyProperties?.list || []).map((booking) => ({
       id: booking._id,
       propertyTitle: booking.propertyData?.propertyTitle || t('common.property'),
@@ -89,14 +91,90 @@ export default function AgentBookings() {
     }))
   }, [data, formatDate, t])
 
+  const myBookings = useMemo(() => {
+    if (statusFilter === 'ALL') return allBookings
+    return allBookings.filter((booking) => booking.status === statusFilter)
+  }, [allBookings, statusFilter])
+
+  const bookingStats = useMemo(() => {
+    const summary = allBookings.reduce(
+      (acc, booking) => {
+        acc.total += 1
+        acc.revenue += booking.total
+        acc[booking.status] += 1
+        return acc
+      },
+      {
+        total: 0,
+        revenue: 0,
+        CONFIRMED: 0,
+        WAITING: 0,
+        CANCELLED: 0,
+        FINISHED: 0,
+      } as Record<BookingStatus | 'total' | 'revenue', number>,
+    )
+
+    return summary
+  }, [allBookings])
+
   const totalCount = resolveTotal(data?.getBookingsForMyProperties?.metaCounter)
-  const bookingsCountLabel = typeof totalCount === 'number' ? totalCount : myBookings.length
+  const bookingsCountLabel = typeof totalCount === 'number' ? totalCount : allBookings.length
+
+  const filterTabs: Array<{ key: 'ALL' | BookingStatus; label: string; count: number }> = [
+    { key: 'ALL', label: 'All', count: bookingStats.total },
+    { key: 'CONFIRMED', label: bookingStatusShortLabel('CONFIRMED'), count: bookingStats.CONFIRMED },
+    { key: 'WAITING', label: bookingStatusShortLabel('WAITING'), count: bookingStats.WAITING },
+    { key: 'CANCELLED', label: bookingStatusShortLabel('CANCELLED'), count: bookingStats.CANCELLED },
+    { key: 'FINISHED', label: bookingStatusShortLabel('FINISHED'), count: bookingStats.FINISHED },
+  ]
 
   return (
     <div>
       <div className="mb-8">
         <h2 className="font-display text-2xl font-bold text-foreground">{t('common.bookings')}</h2>
         <p className="text-sm text-muted-foreground mt-1">{t('agent.bookingsCount', { count: bookingsCountLabel })}</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4 mb-6">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Total</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(bookingStats.total)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Confirmed</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(bookingStats.CONFIRMED)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Waiting</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(bookingStats.WAITING)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Finished</p>
+          <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatNumber(bookingStats.FINISHED)}</p>
+        </div>
+      </div>
+
+      <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/70 p-3">
+        <div className="flex items-center gap-2 mr-2 text-xs text-muted-foreground">
+          <Filter className="h-4 w-4" />
+          Filter:
+        </div>
+        {filterTabs.map((tab) => {
+          const active = statusFilter === tab.key
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setStatusFilter(tab.key)}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab.label}
+              <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px]">{tab.count}</span>
+            </button>
+          )
+        })}
       </div>
 
       {loading && myBookings.length === 0 ? (

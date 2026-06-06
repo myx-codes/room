@@ -14,9 +14,10 @@ interface DashboardLayoutProps {
   children: ReactNode
   basePath: string
   showTopBar?: boolean
+  contextBar?: ReactNode
 }
 
-export function DashboardLayout({ title, navItems, children, basePath, showTopBar = true }: DashboardLayoutProps) {
+export function DashboardLayout({ title, navItems, children, basePath, showTopBar = true, contextBar }: DashboardLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -87,6 +88,7 @@ export function DashboardLayout({ title, navItems, children, basePath, showTopBa
 
         {/* Content */}
         <main className="flex-1 p-6 md:p-8 min-w-0">
+          {contextBar ? <div className="mb-6">{contextBar}</div> : null}
           {children}
         </main>
       </div>

@@ -92,7 +92,7 @@ export default function SignIn() {
       if (data.login.memberType === 'ADMIN') {
         navigate('/admin')
       } else if (data.login.memberType === 'AGENT') {
-        navigate('/agent')
+        navigate('/agent/properties')
       } else {
         navigate('/')
       }

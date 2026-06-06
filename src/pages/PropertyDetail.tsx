@@ -37,7 +37,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { RatingInput } from '@/components/RatingInput'
 import { RatingPreview } from '@/components/RatingPreview'
 import { CREATE_BOOKINGS, CREATE_COMMENT } from '@/graphql/user/mutation'
-import { GET_COMMENTS, GET_PROPERTIES } from '@/graphql/user/query'
+import { GET_COMMENTS, GET_PROPERTIES, GET_PROPERTY_PRICE_PREVIEW } from '@/graphql/user/query'
 import { usePropertyRatings } from '@/hooks/usePropertyRatings'
 import { useI18n } from '@/i18n'
 import { isAuthenticated } from '@/lib/auth'
@@ -68,11 +68,44 @@ interface ApiProperty {
   propertyLocation: string
   propertyTitle: string
   propertyPrice: number
+  dynamicPricingEnabled?: boolean | null
+  weekendMultiplier?: number | null
+  minMultiplier?: number | null
+  maxMultiplier?: number | null
+  manualMultiplierOverride?: number | null
   propertyRank?: number
   propertyRatingCount?: number
   propertyComments: number
   propertyImages: string[]
   propertyDesc?: string | null
+}
+
+interface PricePreviewItem {
+  date: string
+  basePrice: number
+  multiplier: number
+  pricePerDay: number
+  isWeekend: boolean
+  mode: string
+  explanation: string[]
+}
+
+interface PricePreviewResponse {
+  getPropertyPricePreview: {
+    nights: number
+    baseTotal: number
+    totalPrice: number
+    averagePrice: number
+    dates: PricePreviewItem[]
+  }
+}
+
+interface PricePreviewVariables {
+  input: {
+    propertyId: string
+    startDate: string
+    endDate: string
+  }
 }
 
 interface MemberData {
@@ -199,6 +232,8 @@ interface SavedCard {
 interface BookingSummary {
   nights: number
   totalPrice: number
+  baseTotal?: number
+  items?: PricePreviewItem[]
 }
 
 // Component Props
@@ -221,6 +256,7 @@ interface BookingReviewModalProps {
   selectedCardId: string
   bookingError: string
   bookingLoading: boolean
+  bookingSummary: BookingSummary | null
   onSelectCard: (id: string) => void
   onClose: () => void
   onConfirm: () => void
@@ -238,6 +274,8 @@ interface BookingSidebarProps {
   checkOutDate: string
   guestCount: number
   bookingError: string
+  bookingSummary: BookingSummary | null
+  pricingLoading: boolean
   onCheckInChange: (date: string) => void
   onCheckOutChange: (date: string) => void
   onGuestCountChange: (count: number) => void
@@ -492,6 +530,17 @@ function calculateBookingSummary(
   const totalPrice = Math.max(1, Math.round(nights * pricePerNight))
 
   return { nights, totalPrice }
+}
+
+function buildBookingSummaryFromPreview(preview?: PricePreviewResponse['getPropertyPricePreview'] | null): BookingSummary | null {
+  if (!preview) return null
+
+  return {
+    nights: preview.nights,
+    totalPrice: preview.totalPrice,
+    baseTotal: preview.baseTotal,
+    items: preview.dates,
+  }
 }
 
 function readSavedCards(): SavedCard[] {
@@ -1003,21 +1052,42 @@ const BookingSidebar: FC<BookingSidebarProps> = ({
   checkOutDate,
   guestCount,
   bookingError,
+  bookingSummary,
+  pricingLoading,
   onCheckInChange,
   onCheckOutChange,
   onGuestCountChange,
   onReviewBooking,
 }) => {
   const { t, formatNumber } = useI18n()
+  const nightlyPrice = bookingSummary?.items?.[0]?.pricePerDay ?? property.price
+  const totalPrice = bookingSummary?.totalPrice ?? Math.round(property.price)
 
   return (
     <div className="lg:col-span-1">
       <div className="sticky top-28 bg-card rounded-2xl p-6 elevated-shadow border border-border">
         {/* Price display */}
         <div className="flex items-baseline gap-1 mb-6">
-          <span className="text-3xl font-bold text-foreground">${formatNumber(property.price)}</span>
+          <span className="text-3xl font-bold text-foreground">${formatNumber(nightlyPrice)}</span>
           <span className="text-sm text-muted-foreground">{t('common.perNight')}</span>
         </div>
+
+        {bookingSummary ? (
+          <div className="mb-4 rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-2">
+              <span>{bookingSummary.nights} nights</span>
+              <span className="text-foreground font-medium">${formatNumber(totalPrice)}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {bookingSummary.items?.slice(0, 4).map((item) => (
+                <span key={item.date} className="rounded-full bg-background px-2.5 py-1">
+                  {item.date} · ${formatNumber(item.pricePerDay)}
+                </span>
+              ))}
+            </div>
+            {pricingLoading ? <p className="mt-2">Recalculating weekend pricing...</p> : null}
+          </div>
+        ) : null}
 
         {/* Booking form */}
         <div className="space-y-3 mb-6">
@@ -1073,12 +1143,12 @@ const BookingReviewModal: FC<BookingReviewModalProps> = ({
   selectedCardId,
   bookingError,
   bookingLoading,
+  bookingSummary,
   onSelectCard,
   onClose,
   onConfirm,
 }) => {
   const { t, formatDate, formatNumber } = useI18n()
-  const summary = calculateBookingSummary(checkInDate, checkOutDate, property.price)
 
   return (
     <motion.div
@@ -1114,8 +1184,17 @@ const BookingReviewModal: FC<BookingReviewModalProps> = ({
           <p className="text-muted-foreground">
             {formatDate(checkInDate)} → {formatDate(checkOutDate)} · {guestCount} {guestCount > 1 ? t('common.guests') : t('common.guest')}
           </p>
-          {summary ? (
-            <p className="text-foreground font-medium mt-1">{t('common.total')}: ${formatNumber(summary.totalPrice)}</p>
+          {bookingSummary ? (
+            <div className="mt-1 space-y-1">
+              <p className="text-foreground font-medium">{t('common.total')}: ${formatNumber(bookingSummary.totalPrice)}</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {bookingSummary.items?.slice(0, 4).map((item) => (
+                  <span key={item.date} className="rounded-full bg-background px-2.5 py-1 text-muted-foreground">
+                    {item.date} · ${formatNumber(item.pricePerDay)}
+                  </span>
+                ))}
+              </div>
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground mt-1">
               {t('propertyDetail.selectValidDates')}
@@ -1189,6 +1268,8 @@ export default function PropertyDetail(): JSX.Element {
   const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [checkInDate, setCheckInDate] = useState('')
+  const [checkOutDate, setCheckOutDate] = useState('')
 
   // ---------------------------------------------------------------------------
   // QUERIES
@@ -1232,6 +1313,22 @@ export default function PropertyDetail(): JSX.Element {
     fetchPolicy: 'network-only',
   })
 
+  const shouldPreviewPricing = Boolean(id && checkInDate && checkOutDate)
+  const {
+    data: pricePreviewData,
+    loading: pricePreviewLoading,
+  } = useQuery<PricePreviewResponse, PricePreviewVariables>(GET_PROPERTY_PRICE_PREVIEW, {
+    variables: {
+      input: {
+        propertyId: id || '',
+        startDate: checkInDate,
+        endDate: checkOutDate,
+      },
+    },
+    skip: !shouldPreviewPricing,
+    fetchPolicy: 'network-only',
+  })
+
   // ---------------------------------------------------------------------------
   // MUTATIONS
   // ---------------------------------------------------------------------------
@@ -1258,8 +1355,6 @@ export default function PropertyDetail(): JSX.Element {
   const [commentError, setCommentError] = useState('')
 
   // Booking form state
-  const [checkInDate, setCheckInDate] = useState('')
-  const [checkOutDate, setCheckOutDate] = useState('')
   const [guestCount, setGuestCount] = useState(1)
   const [bookingError, setBookingError] = useState('')
   const [savedCards, setSavedCards] = useState<SavedCard[]>([])
@@ -1303,6 +1398,11 @@ export default function PropertyDetail(): JSX.Element {
     }
     return property.images
   }, [property])
+
+  const bookingSummary = useMemo(() => {
+    const preview = pricePreviewData?.getPropertyPricePreview
+    return buildBookingSummaryFromPreview(preview) ?? calculateBookingSummary(checkInDate, checkOutDate, property?.price ?? 0)
+  }, [checkInDate, checkOutDate, pricePreviewData, property?.price])
 
   // ---------------------------------------------------------------------------
   // EFFECTS
@@ -1363,8 +1463,7 @@ export default function PropertyDetail(): JSX.Element {
       return
     }
 
-    const summary = calculateBookingSummary(checkInDate, checkOutDate, property?.price ?? 0)
-    if (!summary) {
+    if (!bookingSummary) {
       setBookingError(t('propertyDetail.checkOutAfterCheckIn'))
     }
   }
@@ -1381,8 +1480,7 @@ export default function PropertyDetail(): JSX.Element {
       return
     }
 
-    const summary = calculateBookingSummary(checkInDate, checkOutDate, property.price)
-    if (!summary) {
+    if (!bookingSummary) {
       setBookingError(t('propertyDetail.checkOutAfterCheckIn'))
       return
     }
@@ -1408,7 +1506,7 @@ export default function PropertyDetail(): JSX.Element {
             bookingStart: checkInDate,
             bookingEnd: checkOutDate,
             bookingGuests: guestCount,
-            totalPrice: summary.totalPrice,
+            totalPrice: bookingSummary.totalPrice,
           },
         },
       })
@@ -1541,6 +1639,8 @@ export default function PropertyDetail(): JSX.Element {
             checkOutDate={checkOutDate}
             guestCount={guestCount}
             bookingError={bookingError}
+            bookingSummary={bookingSummary}
+            pricingLoading={pricePreviewLoading}
             onCheckInChange={setCheckInDate}
             onCheckOutChange={setCheckOutDate}
             onGuestCountChange={setGuestCount}
@@ -1576,6 +1676,7 @@ export default function PropertyDetail(): JSX.Element {
             selectedCardId={selectedCardId}
             bookingError={bookingError}
             bookingLoading={bookingLoading}
+            bookingSummary={bookingSummary}
             onSelectCard={setSelectedCardId}
             onClose={() => setShowBookingReview(false)}
             onConfirm={handleCreateBooking}

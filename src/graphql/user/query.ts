@@ -20,6 +20,11 @@ query GetProperties($input: PropertiesInquiry!) {
             propertyAddress
             propertyTitle
             propertyPrice
+            dynamicPricingEnabled
+            weekendMultiplier
+            minMultiplier
+            maxMultiplier
+            manualMultiplierOverride
             propertySquare
             propertyBeds
             propertyRooms
@@ -67,10 +72,35 @@ export const GET_FEATURED_PROPERTIES = gql`
         propertyLocation
         propertyTitle
         propertyPrice
+        dynamicPricingEnabled
+        weekendMultiplier
+        minMultiplier
+        maxMultiplier
+        manualMultiplierOverride
         propertyRank
         propertyComments
         propertyImages
         propertyDesc
+      }
+    }
+  }
+`
+
+export const GET_PROPERTY_PRICE_PREVIEW = gql`
+  query GetPropertyPricePreview($input: AvailabilityPricingInquiry!) {
+    getPropertyPricePreview(input: $input) {
+      nights
+      baseTotal
+      totalPrice
+      averagePrice
+      dates {
+        date
+        basePrice
+        multiplier
+        pricePerDay
+        isWeekend
+        mode
+        explanation
       }
     }
   }
@@ -173,6 +203,55 @@ export const GET_BOOKINGS_FOR_MY_PROPERTIES = gql`
   }
 `
 
+export const GET_AGENT_DASHBOARD_OVERVIEW = gql`
+  query GetAgentDashboardOverview {
+    getAgentDashboardOverview {
+      propertyStats {
+        totalProperties
+        activeProperties
+        holdProperties
+        bookedProperties
+        dynamicPricingProperties
+        averagePropertyPrice
+        totalPropertyViews
+        totalPropertyLikes
+      }
+      bookingStats {
+        totalBookings
+        confirmedBookings
+        waitingBookings
+        cancelledBookings
+        finishedBookings
+        upcomingBookings
+        totalRevenue
+        averageBookingValue
+      }
+      recentProperties {
+        _id
+        propertyTitle
+        propertyType
+        propertyStatus
+        propertyPrice
+        propertyViews
+        propertyLikes
+        dynamicPricingEnabled
+        createdAt
+      }
+      recentBookings {
+        _id
+        bookingStatus
+        bookingStart
+        bookingEnd
+        totalPrice
+        bookingGuests
+        propertyTitle
+        memberNick
+        createdAt
+      }
+    }
+  }
+`
+
 export const GET_COMMENTS = gql`
   query GetComments($input: CommentsInquiry!) {
     getComments(input: $input) {
@@ -237,6 +316,11 @@ export const GET_ALL_PROPERTIES_BY_ADMIN = gql`
         propertyStatus
         propertyLocation
         propertyPrice
+        dynamicPricingEnabled
+        weekendMultiplier
+        minMultiplier
+        maxMultiplier
+        manualMultiplierOverride
         propertyViews
         propertyLikes
         propertyComments

@@ -14,6 +14,11 @@ export interface PropertyListItem {
   propertyAddress?: string
   propertyTitle: string
   propertyPrice: number
+  dynamicPricingEnabled?: boolean | null
+  weekendMultiplier?: number | null
+  minMultiplier?: number | null
+  maxMultiplier?: number | null
+  manualMultiplierOverride?: number | null
   propertySquare?: number
   propertyBeds?: number
   propertyRooms?: number

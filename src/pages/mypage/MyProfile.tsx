@@ -22,7 +22,7 @@ type UpdateMemberVariables = {
 }
 
 export default function MyProfile() {
-  const { t, memberTypeLabel, memberStatusLabel } = useI18n()
+  const { t, memberTypeLabel } = useI18n()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [profile, setProfile] = useState<StoredMemberProfile | null>(getMemberProfile())
   const [fullName, setFullName] = useState(profile?.memberFullName || '')
@@ -36,8 +36,6 @@ export default function MyProfile() {
 
   const backendProfile = profile
 
-  const memberType = backendProfile?.memberType || '-'
-  const memberStatus = backendProfile?.memberStatus || '-'
   const normalizedFullName = useMemo(() => fullName.trim(), [fullName])
   const normalizedNick = useMemo(() => memberNick.trim(), [memberNick])
   const normalizedPhone = useMemo(() => memberPhone.trim(), [memberPhone])
@@ -193,11 +191,9 @@ export default function MyProfile() {
           </div>
           <div>
             <p className="font-medium text-foreground">{normalizedNick || '-'}</p>
-            {typeof backendProfile?.memberRank === 'number' && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {t('myPage.rank', { value: backendProfile.memberRank })}
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              {memberTypeLabel(backendProfile?.memberType || 'USER')}
+            </p>
             <button
               type="button"
               onClick={handleSelectPhoto}
@@ -245,17 +241,6 @@ export default function MyProfile() {
               <User className="w-4 h-4 text-muted-foreground" />
               <input value={fullName} onChange={(e) => setFullName(e.target.value)}
                 className="bg-transparent text-foreground text-sm w-full outline-none" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-background border border-border rounded-xl px-4 py-3">
-              <p className="text-xs text-muted-foreground mb-1">{t('myPage.memberType')}</p>
-              <p className="text-sm font-medium text-foreground">{memberTypeLabel(memberType)}</p>
-            </div>
-            <div className="bg-background border border-border rounded-xl px-4 py-3">
-              <p className="text-xs text-muted-foreground mb-1">{t('common.status')}</p>
-              <p className="text-sm font-medium text-foreground">{memberStatusLabel(memberStatus)}</p>
             </div>
           </div>
 

@@ -77,6 +77,6 @@ export function getAccountDashboardPath(): string {
   const memberType = String(getMemberProfile()?.memberType || '').toUpperCase()
 
   if (memberType === 'ADMIN') return '/admin'
-  if (memberType === 'AGENT') return '/agent'
+  if (memberType === 'AGENT') return '/agent/properties'
   return '/my-page'
 }

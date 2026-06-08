@@ -1,54 +1,66 @@
-import { getAccessToken } from '@/lib/auth'
-
 const GRAPHQL_URL =
   import.meta.env.VITE_GRAPHQL_URL ||
   (typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:3008/graphql`
+    ? window.location.protocol + '//' + window.location.hostname + ':3008/graphql'
     : 'http://localhost:3008/graphql')
 
-function resolveExplicitWsUrl(explicitWsUrl: string): string {
-  const trimmedUrl = explicitWsUrl.trim()
+export type SocketConnectionConfig = {
+  origin: string
+  path: string
+}
+
+const DEFAULT_SOCKET_PATH = '/socket.io'
+
+function getBrowserOrigin(): string {
+  if (typeof window !== 'undefined') return window.location.origin
+  return 'http://localhost:3008'
+}
+
+function getOriginFromGraphqlUrl(): string {
+  const graphqlBase = GRAPHQL_URL.replace(/\/graphql\/?$/, '')
+
+  try {
+    return new URL(graphqlBase).origin
+  } catch {
+    return getBrowserOrigin()
+  }
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/$/, '')
+}
+
+function normalizeSocketConfig(rawSocketUrl?: string): SocketConnectionConfig {
+  const trimmedUrl = rawSocketUrl?.trim()
+
+  if (!trimmedUrl) {
+    return {
+      origin: getOriginFromGraphqlUrl(),
+      path: DEFAULT_SOCKET_PATH,
+    }
+  }
 
   if (trimmedUrl.startsWith('/')) {
-    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3008'
-    return `${protocol}://${host}${trimmedUrl}`.replace(/\/$/, '')
+    return {
+      origin: getBrowserOrigin(),
+      path: trimTrailingSlash(trimmedUrl) || DEFAULT_SOCKET_PATH,
+    }
   }
 
   try {
     const url = new URL(trimmedUrl)
-    if (url.protocol === 'http:' || url.protocol === 'https:') {
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    return {
+      origin: url.origin,
+      path: trimTrailingSlash(url.pathname) || DEFAULT_SOCKET_PATH,
     }
-    return url.toString().replace(/\/$/, '')
   } catch {
-    return trimmedUrl.replace(/\/$/, '')
+    return {
+      origin: getBrowserOrigin(),
+      path: trimTrailingSlash(trimmedUrl) || DEFAULT_SOCKET_PATH,
+    }
   }
 }
 
-function getWsBaseUrl(): string {
-  const explicitWsUrl = (import.meta.env.VITE_WS_URL as string | undefined)?.trim()
-  if (explicitWsUrl) return resolveExplicitWsUrl(explicitWsUrl)
-
-  const graphqlBase = GRAPHQL_URL.replace(/\/graphql\/?$/, '')
-
-  try {
-    const url = new URL(graphqlBase)
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-    return url.toString().replace(/\/$/, '')
-  } catch {
-    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-    const protocol = isHttps ? 'wss' : 'ws'
-    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3008'
-    return `${protocol}://${host}`
-  }
-}
-
-export function buildSocketUrl(): string {
-  const base = getWsBaseUrl()
-  const token = getAccessToken()
-
-  if (!token) return base
-  const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}token=${encodeURIComponent(token)}`
+export function buildSocketConnectionConfig(): SocketConnectionConfig {
+  return normalizeSocketConfig(import.meta.env.VITE_WS_URL as string | undefined)
 }

@@ -8,13 +8,14 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react'
-import { getAuthChangedEventName } from '@/lib/auth'
-import { buildSocketUrl } from '@/lib/socket'
+import { io, type Socket } from 'socket.io-client'
+import { getAccessToken, getAuthChangedEventName } from '@/lib/auth'
+import { buildSocketConnectionConfig } from '@/lib/socket'
 
 type SocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
 type SocketContextValue = {
-  socket: WebSocket | null
+  socket: Socket | null
   status: SocketStatus
   lastError: string
 }
@@ -28,68 +29,71 @@ const SocketContext = createContext<SocketContextValue>({
 const MAX_RECONNECT_ATTEMPTS = 10
 
 export function SocketProvider({ children }: PropsWithChildren) {
-  const socketRef = useRef<WebSocket | null>(null)
-  const reconnectTimeoutRef = useRef<number | null>(null)
-  const reconnectAttemptRef = useRef(0)
+  const socketRef = useRef<Socket | null>(null)
   const manuallyClosedRef = useRef(false)
 
   const [status, setStatus] = useState<SocketStatus>('disconnected')
   const [lastError, setLastError] = useState('')
 
-  const clearReconnectTimeout = () => {
-    if (reconnectTimeoutRef.current !== null) {
-      window.clearTimeout(reconnectTimeoutRef.current)
-      reconnectTimeoutRef.current = null
-    }
-  }
+  const disconnectCurrentSocket = useCallback(() => {
+    if (!socketRef.current) return
+
+    socketRef.current.removeAllListeners()
+    socketRef.current.disconnect()
+    socketRef.current = null
+  }, [])
 
   const connect = useCallback(() => {
-    clearReconnectTimeout()
-
-    if (socketRef.current?.readyState === WebSocket.OPEN || socketRef.current?.readyState === WebSocket.CONNECTING) {
-      return
-    }
+    const activeSocket = socketRef.current
+    if (activeSocket?.connected || activeSocket?.active) return
 
     manuallyClosedRef.current = false
     setStatus('connecting')
     setLastError('')
 
-    const socketUrl = buildSocketUrl()
-    const ws = new WebSocket(socketUrl)
-    socketRef.current = ws
+    const { origin, path } = buildSocketConnectionConfig()
+    const token = getAccessToken()
+    const socket = io(origin, {
+      path,
+      transports: ['websocket'],
+      auth: token ? { token } : undefined,
+      withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+    })
 
-    ws.onopen = () => {
-      reconnectAttemptRef.current = 0
+    socketRef.current = socket
+
+    socket.on('connect', () => {
       setStatus('connected')
       setLastError('')
-      console.info('[socket] connect', { url: socketUrl })
-    }
+      console.info('[socket] connect', { id: socket.id, origin, path })
+    })
 
-    ws.onerror = () => {
+    socket.on('connect_error', (error) => {
       setStatus('error')
       setLastError('Realtime connection failed. Some live updates may be delayed.')
-      console.error('[socket] connect_error', { url: socketUrl })
-    }
+      console.error('[socket] connect_error', { message: error.message, origin, path })
+    })
 
-    ws.onclose = (event) => {
+    socket.on('disconnect', (reason) => {
       const wasManual = manuallyClosedRef.current
       setStatus('disconnected')
-      console.warn('[socket] disconnect', { code: event.code, reason: event.reason, wasManual })
+      console.warn('[socket] disconnect', { reason, wasManual })
+    })
 
-      if (wasManual) return
-      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) return
+    socket.io.on('reconnect_attempt', (attempt) => {
+      setStatus('connecting')
+      console.info('[socket] reconnect_attempt', { attempt })
+    })
 
-      reconnectAttemptRef.current += 1
-      const timeoutMs = Math.min(1000 * reconnectAttemptRef.current, 10000)
-      console.info('[socket] reconnect_attempt', {
-        attempt: reconnectAttemptRef.current,
-        timeoutMs,
-      })
-
-      reconnectTimeoutRef.current = window.setTimeout(() => {
-        connect()
-      }, timeoutMs)
-    }
+    socket.io.on('reconnect_failed', () => {
+      setStatus('error')
+      setLastError('Realtime connection failed. Some live updates may be delayed.')
+      console.error('[socket] reconnect_failed', { origin, path })
+    })
   }, [])
 
   useEffect(() => {
@@ -98,10 +102,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
     const authEvent = getAuthChangedEventName()
     const handleAuthChanged = () => {
       manuallyClosedRef.current = true
-      clearReconnectTimeout()
-      socketRef.current?.close()
-      socketRef.current = null
-      reconnectAttemptRef.current = 0
+      disconnectCurrentSocket()
       connect()
     }
 
@@ -109,11 +110,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
     return () => {
       window.removeEventListener(authEvent, handleAuthChanged)
       manuallyClosedRef.current = true
-      clearReconnectTimeout()
-      socketRef.current?.close()
-      socketRef.current = null
+      disconnectCurrentSocket()
     }
-  }, [connect])
+  }, [connect, disconnectCurrentSocket])
 
   const value = useMemo(
     () => ({
@@ -139,4 +138,3 @@ export function SocketProvider({ children }: PropsWithChildren) {
 export function useSocket() {
   return useContext(SocketContext)
 }
-
